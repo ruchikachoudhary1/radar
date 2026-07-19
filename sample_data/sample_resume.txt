@@ -1,0 +1,30 @@
+ADITYA SHARMA
+Bengaluru, India | aditya.sharma@gmail.com | +91 98765 43210
+linkedin.com/in/aditya-sharma | github.com/adityasharma
+
+EDUCATION
+Parul University — B.Tech, Computer Science Engineering (2021–2025)
+CGPA: 8.4 / 10
+
+SKILLS
+Languages: JavaScript, TypeScript, Python, SQL
+Frontend: React, Next.js, Tailwind CSS, HTML, CSS
+Backend: Node, Express, FastAPI, REST API
+Databases: PostgreSQL, MongoDB
+Tools: Git, Docker, AWS, CI/CD
+
+EXPERIENCE
+Software Engineering Intern — Techlabs (Jun 2024 – Dec 2024)
+Built a React dashboard that reduced internal reporting time by 40% for 200+ users.
+Developed REST APIs in Node and Express, cutting average response latency by 30%.
+Worked on migrating the legacy database to PostgreSQL with zero downtime.
+Responsible for writing unit tests that raised coverage from 45% to 82%.
+
+PROJECTS
+Smart Expense Tracker — React, FastAPI, PostgreSQL
+Engineered a full-stack expense tracker with JWT authentication serving 500 users.
+Optimized SQL queries, improving dashboard load time by 55%.
+
+Realtime Chat App — Node, Socket.io, MongoDB
+Built a realtime chat application supporting 1,000 concurrent connections.
+Helped deploy the app on AWS using Docker containers.

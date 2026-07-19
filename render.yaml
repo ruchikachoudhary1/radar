@@ -1,0 +1,15 @@
+# Render.com blueprint — deploys the backend as a free web service.
+# Push this repo to GitHub, then in Render: New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: radar-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false            # set this secret in the Render dashboard
+      - key: GEMINI_MODEL
+        value: gemini-1.5-flash
