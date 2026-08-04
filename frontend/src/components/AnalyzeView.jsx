@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { analyzeResume } from "../api.js";
 import Results from "./Results.jsx";
+import InterviewPanel from "./InterviewPanel.jsx";
 
 export default function AnalyzeView({ roles }) {
   const [file, setFile] = useState(null);
@@ -132,6 +133,9 @@ export default function AnalyzeView({ roles }) {
       </div>
 
       {report && <Results report={report} />}
+      {report?.id && (
+        <InterviewPanel key={report.id} report={report} filename={file?.name} />
+      )}
     </div>
   );
 }

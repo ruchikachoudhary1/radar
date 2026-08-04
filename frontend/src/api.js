@@ -35,6 +35,56 @@ export async function rewriteBullet(bullet, variants = 3) {
   );
 }
 
+// --- Interactive gap-fill interview ---------------------------------------
+
+export async function getInterviewQuestions(analysisId) {
+  return handle(
+    await fetch(`${BASE}/api/interview/questions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ analysis_id: analysisId }),
+    })
+  );
+}
+
+export async function buildResume(analysisId, answers) {
+  return handle(
+    await fetch(`${BASE}/api/interview/build`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ analysis_id: analysisId, answers }),
+    })
+  );
+}
+
+/** Ask the backend to render the resume and trigger a browser download. */
+export async function downloadResume(text, format, filename = "resume") {
+  const res = await fetch(`${BASE}/api/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, format, filename }),
+  });
+  if (!res.ok) {
+    let detail = `Export failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body.detail) detail = body.detail;
+    } catch (_) {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${filename.replace(/\.[^.]+$/, "")}.${format}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function getHistory() {
   return handle(await fetch(`${BASE}/api/history`));
 }
