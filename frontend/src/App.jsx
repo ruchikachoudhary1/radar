@@ -3,10 +3,14 @@ import AnalyzeView from "./components/AnalyzeView.jsx";
 import RewriteView from "./components/RewriteView.jsx";
 import HistoryView from "./components/HistoryView.jsx";
 import MethodView from "./components/MethodView.jsx";
+import ProfileView from "./components/ProfileView.jsx";
+import TrackerView from "./components/TrackerView.jsx";
 import { getHealth } from "./api.js";
 
 const NAV = [
   { id: "analyze", label: "Analyze" },
+  { id: "tracker", label: "Applications" },
+  { id: "profile", label: "Profile" },
   { id: "rewrite", label: "Rewrite" },
   { id: "history", label: "History" },
   { id: "method", label: "Method" },
@@ -93,6 +97,8 @@ export default function App() {
           </div>
         )}
         {view === "analyze" && <AnalyzeView roles={roles} />}
+        {view === "tracker" && <TrackerView />}
+        {view === "profile" && <ProfileView />}
         {view === "rewrite" && <RewriteView gemini={health?.gemini_configured} />}
         {view === "history" && <HistoryView />}
         {view === "method" && <MethodView />}

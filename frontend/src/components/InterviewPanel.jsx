@@ -1,5 +1,10 @@
 import React, { useState } from "react";
-import { getInterviewQuestions, buildResume, downloadResume } from "../api.js";
+import {
+  getInterviewQuestions,
+  buildResume,
+  downloadResume,
+  profileFromAnalysis,
+} from "../api.js";
 
 /**
  * The gap-fill interview.
@@ -18,6 +23,7 @@ export default function InterviewPanel({ report, filename }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [busyFormat, setBusyFormat] = useState("");
+  const [savedProfile, setSavedProfile] = useState("");
 
   const answeredCount = questions.filter((q) => (answers[q.id] || "").trim()).length;
   const requiredLeft = questions.filter(
@@ -61,6 +67,23 @@ export default function InterviewPanel({ report, filename }) {
       await downloadResume(result.resume_text, format, `${stem}-radar`);
     } catch (e) {
       setError(e.message || "Download failed.");
+    } finally {
+      setBusyFormat("");
+    }
+  }
+
+  async function saveAsProfile() {
+    setBusyFormat("profile");
+    setError("");
+    try {
+      const res = await profileFromAnalysis(report.id);
+      setSavedProfile(
+        res.usable
+          ? "Saved to your profile — the Applications tab can now tailor resumes from it."
+          : "Saved, but some fields came through blank. Check the Profile tab and fill them in."
+      );
+    } catch (e) {
+      setError(e.message || "Couldn't save that to your profile.");
     } finally {
       setBusyFormat("");
     }
@@ -239,10 +262,20 @@ export default function InterviewPanel({ report, filename }) {
         >
           Copy text
         </button>
+        <button className="btn ghost" onClick={saveAsProfile} disabled={!!busyFormat}>
+          {busyFormat === "profile" && <span className="spinner" />}
+          Save as my profile
+        </button>
         <button className="btn ghost" onClick={reset}>
           Start over
         </button>
       </div>
+
+      {savedProfile && (
+        <div className="banner info" style={{ marginTop: 16, marginBottom: 0 }}>
+          {savedProfile}
+        </div>
+      )}
 
       {result.changes?.length > 0 && (
         <div style={{ marginTop: 24 }}>

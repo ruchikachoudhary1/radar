@@ -57,6 +57,84 @@ export async function buildResume(analysisId, answers) {
   );
 }
 
+// --- Master profile --------------------------------------------------------
+
+export async function getProfile() {
+  return handle(await fetch(`${BASE}/api/profile`));
+}
+
+export async function saveProfile(profile) {
+  return handle(
+    await fetch(`${BASE}/api/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile }),
+    })
+  );
+}
+
+export async function profileFromAnalysis(analysisId) {
+  return handle(
+    await fetch(`${BASE}/api/profile/from-analysis`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ analysis_id: analysisId }),
+    })
+  );
+}
+
+// --- Job postings & application tracker -----------------------------------
+
+export async function parseJob({ url, text }) {
+  return handle(
+    await fetch(`${BASE}/api/jobs/parse`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: url || "", text: text || "" }),
+    })
+  );
+}
+
+export async function getApplications() {
+  return handle(await fetch(`${BASE}/api/applications`));
+}
+
+export async function getApplication(id) {
+  return handle(await fetch(`${BASE}/api/applications/${id}`));
+}
+
+export async function createApplication(payload) {
+  return handle(
+    await fetch(`${BASE}/api/applications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+  );
+}
+
+export async function updateApplication(id, changes) {
+  return handle(
+    await fetch(`${BASE}/api/applications/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(changes),
+    })
+  );
+}
+
+export async function retailorApplication(id) {
+  return handle(
+    await fetch(`${BASE}/api/applications/${id}/tailor`, { method: "POST" })
+  );
+}
+
+export async function deleteApplication(id) {
+  return handle(
+    await fetch(`${BASE}/api/applications/${id}`, { method: "DELETE" })
+  );
+}
+
 /** Ask the backend to render the resume and trigger a browser download. */
 export async function downloadResume(text, format, filename = "resume") {
   const res = await fetch(`${BASE}/api/export`, {

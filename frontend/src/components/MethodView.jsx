@@ -13,9 +13,32 @@ const STACK = [
   ["Frontend", "React 18, Vite, hand-built SVG data-viz, custom design system"],
   ["Backend", "FastAPI, Pydantic, Uvicorn — typed REST API with auto OpenAPI docs"],
   ["NLP / ML", "scikit-learn TF-IDF + cosine similarity for JD matching"],
-  ["AI", "Google Gemini for bullet rewriting, with a deterministic offline fallback"],
-  ["Data", "SQLite persistence of every analysis"],
-  ["Parsing", "pdfplumber and python-docx for PDF / Word extraction"],
+  ["AI", "Google Gemini for rewriting and tailoring, with a deterministic offline fallback"],
+  ["Data", "SQLite — analyses, the master profile, and the application pipeline"],
+  ["Parsing", "pdfplumber and python-docx in; python-docx and fpdf2 back out"],
+];
+
+const PIPELINE = [
+  [
+    "Gap-fill interview",
+    "The rule engine compares a scored resume against the rubric and turns each shortfall into a question — a bullet with no number, a missing section, an absent link. Answers are folded back in and the resume is re-scored, so the improvement is measured, not asserted.",
+  ],
+  [
+    "Master profile",
+    "Resume text is parsed once into structured fields — contact, skills, experience, projects, education. Section headings are matched against an alias table, so 'Technical Skills' and 'Tech Stack' both resolve to the same field. Every field stays editable, because a visible wrong guess is safer than a silent one.",
+  ],
+  [
+    "Posting ingestion",
+    "A posting URL is fetched server-side and stripped to text with regex, no parser dependency. Because the fetch target is user-supplied, hostnames resolving to private, loopback or link-local addresses are refused — otherwise the deployed backend could be used to reach its own network. Boards that block bots or render in JavaScript fall back to pasted text.",
+  ],
+  [
+    "Field extraction",
+    "Pay, location, duration, work mode and job type are pulled with labelled-value regexes that stop at the next field, so 'Location: Pune. Stipend: ...' does not swallow the rest of the line. Anything not found is left blank rather than guessed.",
+  ],
+  [
+    "Tailoring",
+    "The profile is re-ranked against the posting's TF-IDF keywords so relevant skills lead, then rendered as a resume and re-scored for keyword coverage. The rule layer never adds a skill the profile lacks; Gemini, when configured, rewrites the prose under the same constraint.",
+  ],
 ];
 
 export default function MethodView() {
@@ -54,6 +77,21 @@ export default function MethodView() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="card pad-lg" style={{ marginTop: 20 }}>
+        <div className="section-title">From upload to a tailored application</div>
+        <p className="muted" style={{ marginBottom: 6 }}>
+          Every AI-assisted step has a deterministic engine underneath it. The rules decide what
+          is true; the model only decides how it reads. That is why the app still works with no API
+          key — and why nothing it writes can be an invention.
+        </p>
+        {PIPELINE.map(([name, desc]) => (
+          <div className="method-item" key={name}>
+            <h4>{name}</h4>
+            <p>{desc}</p>
+          </div>
+        ))}
       </div>
     </div>
   );

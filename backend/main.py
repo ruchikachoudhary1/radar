@@ -17,9 +17,12 @@ import ai
 import database
 import documents
 import interview
+import jobs
 import matching
 import parsing
+import profiles
 import scoring
+import tailor
 from roles import ROLE_KEYWORDS
 
 load_dotenv()
@@ -57,6 +60,46 @@ class ExportRequest(BaseModel):
     text: str
     format: str = "docx"
     filename: str = "resume"
+
+
+class ProfileFromAnalysis(BaseModel):
+    analysis_id: int
+    prefer_rebuilt: bool = True
+
+
+class JobParseRequest(BaseModel):
+    url: str = ""
+    text: str = ""
+
+
+class ApplicationCreate(BaseModel):
+    url: str = ""
+    text: str = ""
+    company: str = ""
+    title: str = ""
+    job_type: str = ""
+    work_mode: str = ""
+    location: str = ""
+    stipend: str = ""
+    duration: str = ""
+    status: str = "Saved"
+    notes: str = ""
+    jd_text: str = ""
+    generate_resume: bool = True
+
+
+class ApplicationPatch(BaseModel):
+    company: str | None = None
+    title: str | None = None
+    url: str | None = None
+    job_type: str | None = None
+    work_mode: str | None = None
+    location: str | None = None
+    stipend: str | None = None
+    duration: str | None = None
+    status: str | None = None
+    notes: str | None = None
+    resume_text: str | None = None
 
 
 @app.get("/api/health")
@@ -187,6 +230,157 @@ def export(req: ExportRequest):
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+# --------------------------------------------------------------------------
+# Master profile
+# --------------------------------------------------------------------------
+@app.get("/api/profile")
+def read_profile() -> dict:
+    stored = database.get_profile()
+    return {
+        "profile": stored or profiles.empty(),
+        "exists": stored is not None,
+        "usable": profiles.is_usable(stored or {}),
+    }
+
+
+@app.put("/api/profile")
+def write_profile(data: dict) -> dict:
+    clean = profiles.normalise(data.get("profile", data))
+    database.save_profile(clean)
+    return {"profile": clean, "usable": profiles.is_usable(clean)}
+
+
+@app.post("/api/profile/from-analysis")
+def profile_from_analysis(req: ProfileFromAnalysis) -> dict:
+    """Seed the master profile from a resume already uploaded and scored."""
+    record = _load_analysis(req.analysis_id)
+    # The interview-rebuilt version is richer, so prefer it when one exists.
+    source = record.get("rebuilt") if req.prefer_rebuilt else None
+    clean = profiles.normalise(profiles.extract(source or record["resume_text"]))
+    database.save_profile(clean)
+    return {
+        "profile": clean,
+        "usable": profiles.is_usable(clean),
+        "source": "rebuilt resume" if source else "uploaded resume",
+    }
+
+
+# --------------------------------------------------------------------------
+# Job postings and the application tracker
+# --------------------------------------------------------------------------
+@app.post("/api/jobs/parse")
+def parse_job(req: JobParseRequest) -> dict:
+    """Read a posting from a link or pasted text and pull out its details."""
+    try:
+        return jobs.ingest(url=req.url, text=req.text)
+    except jobs.FetchError as exc:
+        # 422 rather than 502: the UI treats this as "ask the user to paste".
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.get("/api/applications")
+def list_applications() -> dict:
+    return {
+        "items": database.list_applications(),
+        "statuses": list(jobs.STATUSES),
+        "job_types": list(jobs.JOB_TYPES),
+        "work_modes": list(jobs.WORK_MODES),
+    }
+
+
+@app.post("/api/applications")
+def create_application(req: ApplicationCreate) -> dict:
+    """Add a posting to the tracker, tailoring a resume for it by default."""
+    jd_text = req.jd_text.strip()
+    meta = {}
+    if not jd_text and (req.url.strip() or req.text.strip()):
+        try:
+            parsed = jobs.ingest(url=req.url, text=req.text)
+        except jobs.FetchError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        jd_text = parsed["jd_text"]
+        meta = parsed["meta"]
+
+    # Anything the user typed on the form wins over what the parser guessed.
+    record = {
+        field: (getattr(req, field, "") or meta.get(field, "") or "")
+        for field in ("company", "title", "job_type", "work_mode",
+                      "location", "stipend", "duration")
+    }
+    record.update({
+        "url": req.url.strip(),
+        "status": req.status or "Saved",
+        "notes": req.notes,
+        "jd_text": jd_text,
+    })
+
+    if req.generate_resume:
+        stored = database.get_profile()
+        if not profiles.is_usable(stored or {}):
+            raise HTTPException(
+                status_code=409,
+                detail="Set up your profile first — the tracker builds each resume from it.",
+            )
+        result = tailor.tailor(stored, jd_text, record)
+        record["resume_text"] = result["resume_text"]
+        record["engine"] = result["engine"]
+        record["match_score"] = (result["match"] or {}).get("score")
+
+    app_id = database.create_application(record)
+    return database.get_application(app_id)
+
+
+@app.get("/api/applications/{app_id}")
+def read_application(app_id: int) -> dict:
+    record = database.get_application(app_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="That application no longer exists.")
+    return record
+
+
+@app.patch("/api/applications/{app_id}")
+def patch_application(app_id: int, req: ApplicationPatch) -> dict:
+    changes = {k: v for k, v in req.model_dump().items() if v is not None}
+    if changes.get("status") and changes["status"] not in jobs.STATUSES:
+        raise HTTPException(
+            status_code=400, detail=f"Status must be one of: {', '.join(jobs.STATUSES)}."
+        )
+    if not database.update_application(app_id, changes):
+        raise HTTPException(status_code=404, detail="That application no longer exists.")
+    return database.get_application(app_id)
+
+
+@app.post("/api/applications/{app_id}/tailor")
+def retailor_application(app_id: int) -> dict:
+    """Rebuild this application's resume from the current profile."""
+    record = database.get_application(app_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="That application no longer exists.")
+
+    stored = database.get_profile()
+    if not profiles.is_usable(stored or {}):
+        raise HTTPException(
+            status_code=409,
+            detail="Set up your profile first — the tracker builds each resume from it.",
+        )
+
+    result = tailor.tailor(stored, record.get("jd_text") or "", record)
+    database.update_application(app_id, {
+        "resume_text": result["resume_text"],
+        "engine": result["engine"],
+        "match_score": (result["match"] or {}).get("score"),
+    })
+    result["application"] = database.get_application(app_id)
+    return result
+
+
+@app.delete("/api/applications/{app_id}")
+def remove_application(app_id: int) -> dict:
+    if not database.delete_application(app_id):
+        raise HTTPException(status_code=404, detail="That application no longer exists.")
+    return {"deleted": app_id}
 
 
 @app.post("/api/rewrite")
