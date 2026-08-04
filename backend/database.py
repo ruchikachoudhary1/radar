@@ -1,234 +1,213 @@
-"""SQLite persistence for analyses, interview sessions, the master profile
-and the job application tracker."""
+"""
+Data access for analyses, the master profile and the application tracker.
+
+Every function takes the session and the owning user, and every query filters
+on user_id. Scoping here rather than in the route handlers means a forgotten
+check in one endpoint cannot leak another account's resumes — the only way to
+read a row is through a function that already constrains by owner.
+"""
 from __future__ import annotations
 
-import json
-import os
-import sqlite3
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "data", "radar.db")
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-# Columns added after v1.0. Each is applied with ALTER TABLE on startup so an
-# existing radar.db keeps working without being deleted and recreated.
-_MIGRATIONS = {
-    "resume_text": "TEXT",   # extracted plain text, needed to rebuild the resume
-    "questions": "TEXT",     # JSON: gap-fill questions generated for this resume
-    "answers": "TEXT",       # JSON: the candidate's answers
-    "rebuilt": "TEXT",       # the improved resume produced from those answers
-}
+from db import init_db  # re-exported: main.py calls database.init_db() on startup
+from models import Analysis, Application, Profile, User
 
+__all__ = [
+    "init_db",
+    "save_analysis", "get_analysis", "save_questions", "save_rebuild", "list_history",
+    "get_profile", "save_profile",
+    "create_application", "get_application", "list_applications",
+    "update_application", "delete_application",
+    "APPLICATION_FIELDS",
+]
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+APPLICATION_FIELDS = (
+    "company", "title", "url", "job_type", "work_mode", "location",
+    "stipend", "duration", "status", "notes", "jd_text", "resume_text",
+    "match_score", "engine", "replied",
+)
 
-
-def _connect() -> sqlite3.Connection:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db() -> None:
-    with _connect() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analyses (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename   TEXT NOT NULL,
-                role       TEXT,
-                overall    INTEGER NOT NULL,
-                grade      TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                report     TEXT NOT NULL
-            )
-            """
-        )
-        existing = {r["name"] for r in conn.execute("PRAGMA table_info(analyses)")}
-        for column, coltype in _MIGRATIONS.items():
-            if column not in existing:
-                conn.execute(f"ALTER TABLE analyses ADD COLUMN {column} {coltype}")
-
-        # One master profile per install; the fixed id keeps it a singleton.
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS profile (
-                id         INTEGER PRIMARY KEY CHECK (id = 1),
-                data       TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS applications (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                company     TEXT,
-                title       TEXT,
-                url         TEXT,
-                job_type    TEXT,
-                work_mode   TEXT,
-                location    TEXT,
-                stipend     TEXT,
-                duration    TEXT,
-                status      TEXT NOT NULL DEFAULT 'Saved',
-                notes       TEXT,
-                jd_text     TEXT,
-                resume_text TEXT,
-                match_score INTEGER,
-                engine      TEXT,
-                created_at  TEXT NOT NULL,
-                updated_at  TEXT NOT NULL
-            )
-            """
-        )
+# Large columns are omitted from the list view and fetched per-application.
+_LIST_FIELDS = (
+    "id", "company", "title", "url", "job_type", "work_mode", "location",
+    "stipend", "duration", "status", "notes", "match_score", "engine", "replied",
+)
 
 
-def save_analysis(filename: str, role: str, report: dict, resume_text: str = "") -> int:
-    with _connect() as conn:
-        cur = conn.execute(
-            "INSERT INTO analyses (filename, role, overall, grade, created_at, report, resume_text)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                filename,
-                role,
-                report["overall"],
-                report["grade"],
-                datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                json.dumps(report),
-                resume_text,
-            ),
-        )
-        return cur.lastrowid
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat(timespec="seconds") if value else None
 
 
-def get_analysis(analysis_id: int) -> dict | None:
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+# --------------------------------------------------------------------------
+# Analyses
+# --------------------------------------------------------------------------
+def save_analysis(
+    db: Session, user: User, filename: str, role: str, report: dict, resume_text: str = ""
+) -> int:
+    row = Analysis(
+        user_id=user.id,
+        filename=filename,
+        role=role or "",
+        overall=report["overall"],
+        grade=report["grade"],
+        report=report,
+        resume_text=resume_text,
+    )
+    db.add(row)
+    db.commit()
+    return row.id
+
+
+def _analysis(db: Session, user: User, analysis_id: int) -> Analysis | None:
+    return db.scalar(
+        select(Analysis).where(Analysis.id == analysis_id, Analysis.user_id == user.id)
+    )
+
+
+def get_analysis(db: Session, user: User, analysis_id: int) -> dict | None:
+    row = _analysis(db, user, analysis_id)
     if not row:
         return None
-    item = dict(row)
-    for key in ("report", "questions", "answers"):
-        if item.get(key):
-            try:
-                item[key] = json.loads(item[key])
-            except (TypeError, ValueError):
-                item[key] = None
-    return item
+    return {
+        "id": row.id,
+        "filename": row.filename,
+        "role": row.role,
+        "overall": row.overall,
+        "grade": row.grade,
+        "report": row.report,
+        "resume_text": row.resume_text or "",
+        "questions": row.questions,
+        "answers": row.answers,
+        "rebuilt": row.rebuilt,
+        "created_at": _iso(row.created_at),
+    }
 
 
-def save_questions(analysis_id: int, questions: list[dict]) -> None:
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE analyses SET questions = ? WHERE id = ?",
-            (json.dumps(questions), analysis_id),
-        )
+def save_questions(db: Session, user: User, analysis_id: int, questions: list[dict]) -> None:
+    row = _analysis(db, user, analysis_id)
+    if row:
+        row.questions = questions
+        db.commit()
 
 
-def save_rebuild(analysis_id: int, answers: dict, rebuilt: str) -> None:
-    with _connect() as conn:
-        conn.execute(
-            "UPDATE analyses SET answers = ?, rebuilt = ? WHERE id = ?",
-            (json.dumps(answers), rebuilt, analysis_id),
-        )
+def save_rebuild(db: Session, user: User, analysis_id: int, answers: dict, rebuilt: str) -> None:
+    row = _analysis(db, user, analysis_id)
+    if row:
+        row.answers = answers
+        row.rebuilt = rebuilt
+        db.commit()
+
+
+def list_history(db: Session, user: User, limit: int = 20) -> list[dict]:
+    rows = db.scalars(
+        select(Analysis)
+        .where(Analysis.user_id == user.id)
+        .order_by(Analysis.id.desc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "id": r.id,
+            "filename": r.filename,
+            "role": r.role,
+            "overall": r.overall,
+            "grade": r.grade,
+            "created_at": _iso(r.created_at),
+            "improved": bool(r.rebuilt),
+        }
+        for r in rows
+    ]
 
 
 # --------------------------------------------------------------------------
 # Master profile
 # --------------------------------------------------------------------------
-def get_profile() -> dict | None:
-    with _connect() as conn:
-        row = conn.execute("SELECT data FROM profile WHERE id = 1").fetchone()
-    if not row:
-        return None
-    try:
-        return json.loads(row["data"])
-    except (TypeError, ValueError):
-        return None
+def get_profile(db: Session, user: User) -> dict | None:
+    row = db.scalar(select(Profile).where(Profile.user_id == user.id))
+    return row.data if row else None
 
 
-def save_profile(data: dict) -> None:
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO profile (id, data, updated_at) VALUES (1, ?, ?)"
-            " ON CONFLICT(id) DO UPDATE SET data = excluded.data,"
-            " updated_at = excluded.updated_at",
-            (json.dumps(data), _now()),
-        )
+def save_profile(db: Session, user: User, data: dict) -> None:
+    row = db.scalar(select(Profile).where(Profile.user_id == user.id))
+    if row:
+        row.data = data
+    else:
+        db.add(Profile(user_id=user.id, data=data))
+    db.commit()
 
 
 # --------------------------------------------------------------------------
 # Application tracker
 # --------------------------------------------------------------------------
-APPLICATION_FIELDS = (
-    "company", "title", "url", "job_type", "work_mode", "location",
-    "stipend", "duration", "status", "notes", "jd_text", "resume_text",
-    "match_score", "engine",
-)
-
-# Columns too large to ship in the list view; fetched per-application instead.
-_HEAVY_FIELDS = ("jd_text", "resume_text")
-_LIST_FIELDS = ["id"] + [f for f in APPLICATION_FIELDS if f not in _HEAVY_FIELDS] + [
-    "created_at", "updated_at"
-]
+def _as_dict(row: Application, fields: tuple[str, ...]) -> dict:
+    out = {f: getattr(row, f) for f in fields}
+    out["created_at"] = _iso(row.created_at)
+    out["updated_at"] = _iso(row.updated_at)
+    out["applied_at"] = _iso(row.applied_at)
+    return out
 
 
-def create_application(data: dict) -> int:
-    values = {f: data.get(f) for f in APPLICATION_FIELDS}
-    values["status"] = values.get("status") or "Saved"
-    now = _now()
-    columns = ", ".join(APPLICATION_FIELDS) + ", created_at, updated_at"
-    marks = ", ".join("?" for _ in range(len(APPLICATION_FIELDS) + 2))
-    with _connect() as conn:
-        cur = conn.execute(
-            f"INSERT INTO applications ({columns}) VALUES ({marks})",
-            tuple(values[f] for f in APPLICATION_FIELDS) + (now, now),
-        )
-        return cur.lastrowid
+def create_application(db: Session, user: User, data: dict) -> int:
+    values = {f: data[f] for f in APPLICATION_FIELDS if data.get(f) is not None}
+    values.setdefault("status", "Saved")
+    row = Application(user_id=user.id, **values)
+    if row.status == "Applied":
+        row.applied_at = datetime.now(timezone.utc)
+    db.add(row)
+    db.commit()
+    return row.id
 
 
-def update_application(app_id: int, data: dict) -> bool:
-    fields = [f for f in APPLICATION_FIELDS if f in data]
-    if not fields:
+def get_application(db: Session, user: User, app_id: int) -> dict | None:
+    row = db.scalar(
+        select(Application).where(Application.id == app_id, Application.user_id == user.id)
+    )
+    if not row:
+        return None
+    return _as_dict(row, APPLICATION_FIELDS + ("id",))
+
+
+def list_applications(db: Session, user: User) -> list[dict]:
+    rows = db.scalars(
+        select(Application)
+        .where(Application.user_id == user.id)
+        .order_by(Application.updated_at.desc(), Application.id.desc())
+    ).all()
+    out = []
+    for row in rows:
+        item = _as_dict(row, _LIST_FIELDS)
+        item["has_resume"] = bool(row.resume_text)
+        out.append(item)
+    return out
+
+
+def update_application(db: Session, user: User, app_id: int, data: dict) -> bool:
+    row = db.scalar(
+        select(Application).where(Application.id == app_id, Application.user_id == user.id)
+    )
+    if not row:
         return False
-    assignments = ", ".join(f"{f} = ?" for f in fields) + ", updated_at = ?"
-    with _connect() as conn:
-        cur = conn.execute(
-            f"UPDATE applications SET {assignments} WHERE id = ?",
-            tuple(data[f] for f in fields) + (_now(), app_id),
-        )
-        return cur.rowcount > 0
+    for field in APPLICATION_FIELDS:
+        if field in data:
+            setattr(row, field, data[field])
+    # Stamp the moment of applying once, so "silent for N days" counts from the
+    # application rather than from the last time any field was edited.
+    if data.get("status") == "Applied" and row.applied_at is None:
+        row.applied_at = datetime.now(timezone.utc)
+    db.commit()
+    return True
 
 
-def get_application(app_id: int) -> dict | None:
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
-    return dict(row) if row else None
-
-
-def list_applications() -> list[dict]:
-    columns = ", ".join(_LIST_FIELDS)
-    with _connect() as conn:
-        rows = conn.execute(
-            f"SELECT {columns}, (resume_text IS NOT NULL AND resume_text != '') AS has_resume"
-            " FROM applications ORDER BY updated_at DESC, id DESC"
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def delete_application(app_id: int) -> bool:
-    with _connect() as conn:
-        cur = conn.execute("DELETE FROM applications WHERE id = ?", (app_id,))
-        return cur.rowcount > 0
-
-
-def list_history(limit: int = 20) -> list[dict]:
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT id, filename, role, overall, grade, created_at,"
-            " (rebuilt IS NOT NULL) AS improved"
-            " FROM analyses ORDER BY id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    return [dict(r) for r in rows]
+def delete_application(db: Session, user: User, app_id: int) -> bool:
+    row = db.scalar(
+        select(Application).where(Application.id == app_id, Application.user_id == user.id)
+    )
+    if not row:
+        return False
+    db.delete(row)
+    db.commit()
+    return True

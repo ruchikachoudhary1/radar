@@ -2,6 +2,41 @@
 // In dev, Vite proxies /api to the FastAPI server (see vite.config.js).
 // In production, set VITE_API_URL to the deployed backend origin.
 const BASE = import.meta.env.VITE_API_URL || "";
+const TOKEN_KEY = "radar_token";
+
+// --- Session ---------------------------------------------------------------
+// The JWT lives in localStorage so a refresh keeps you signed in. Every
+// authenticated request attaches it as a bearer token.
+
+export function getToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+export function setToken(token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch (_) {
+    /* private browsing — the session just won't survive a refresh */
+  }
+}
+
+/** Listeners notified when the server rejects our token, so the UI can sign out. */
+const expiryListeners = new Set();
+
+export function onSessionExpired(fn) {
+  expiryListeners.add(fn);
+  return () => expiryListeners.delete(fn);
+}
+
+function authHeaders(extra = {}) {
+  const token = getToken();
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+}
 
 async function handle(res) {
   if (!res.ok) {
@@ -12,9 +47,47 @@ async function handle(res) {
     } catch (_) {
       /* ignore */
     }
+    if (res.status === 401) {
+      setToken("");
+      expiryListeners.forEach((fn) => fn(detail));
+    }
     throw new Error(detail);
   }
   return res.json();
+}
+
+function jsonRequest(method, body) {
+  return {
+    method,
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  };
+}
+
+// --- Accounts --------------------------------------------------------------
+
+export async function signup({ email, password, name }) {
+  return handle(
+    await fetch(`${BASE}/api/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, name: name || "" }),
+    })
+  );
+}
+
+export async function login({ email, password }) {
+  return handle(
+    await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    })
+  );
+}
+
+export async function getMe() {
+  return handle(await fetch(`${BASE}/api/auth/me`, { headers: authHeaders() }));
 }
 
 export async function analyzeResume({ file, role, jobDescription }) {
@@ -22,15 +95,13 @@ export async function analyzeResume({ file, role, jobDescription }) {
   form.append("file", file);
   form.append("role", role || "");
   form.append("job_description", jobDescription || "");
-  return handle(await fetch(`${BASE}/api/analyze`, { method: "POST", body: form }));
+  return handle(await fetch(`${BASE}/api/analyze`, { method: "POST", headers: authHeaders(), body: form }));
 }
 
 export async function rewriteBullet(bullet, variants = 3) {
   return handle(
     await fetch(`${BASE}/api/rewrite`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bullet, variants }),
+      ...jsonRequest("POST", { bullet, variants }),
     })
   );
 }
@@ -40,9 +111,7 @@ export async function rewriteBullet(bullet, variants = 3) {
 export async function getInterviewQuestions(analysisId) {
   return handle(
     await fetch(`${BASE}/api/interview/questions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ analysis_id: analysisId }),
+      ...jsonRequest("POST", { analysis_id: analysisId }),
     })
   );
 }
@@ -50,9 +119,7 @@ export async function getInterviewQuestions(analysisId) {
 export async function buildResume(analysisId, answers) {
   return handle(
     await fetch(`${BASE}/api/interview/build`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ analysis_id: analysisId, answers }),
+      ...jsonRequest("POST", { analysis_id: analysisId, answers }),
     })
   );
 }
@@ -60,15 +127,13 @@ export async function buildResume(analysisId, answers) {
 // --- Master profile --------------------------------------------------------
 
 export async function getProfile() {
-  return handle(await fetch(`${BASE}/api/profile`));
+  return handle(await fetch(`${BASE}/api/profile`, { headers: authHeaders() }));
 }
 
 export async function saveProfile(profile) {
   return handle(
     await fetch(`${BASE}/api/profile`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile }),
+      ...jsonRequest("PUT", { profile }),
     })
   );
 }
@@ -76,9 +141,7 @@ export async function saveProfile(profile) {
 export async function profileFromAnalysis(analysisId) {
   return handle(
     await fetch(`${BASE}/api/profile/from-analysis`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ analysis_id: analysisId }),
+      ...jsonRequest("POST", { analysis_id: analysisId }),
     })
   );
 }
@@ -88,27 +151,23 @@ export async function profileFromAnalysis(analysisId) {
 export async function parseJob({ url, text }) {
   return handle(
     await fetch(`${BASE}/api/jobs/parse`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: url || "", text: text || "" }),
+      ...jsonRequest("POST", { url: url || "", text: text || "" }),
     })
   );
 }
 
 export async function getApplications() {
-  return handle(await fetch(`${BASE}/api/applications`));
+  return handle(await fetch(`${BASE}/api/applications`, { headers: authHeaders() }));
 }
 
 export async function getApplication(id) {
-  return handle(await fetch(`${BASE}/api/applications/${id}`));
+  return handle(await fetch(`${BASE}/api/applications/${id}`, { headers: authHeaders() }));
 }
 
 export async function createApplication(payload) {
   return handle(
     await fetch(`${BASE}/api/applications`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      ...jsonRequest("POST", payload),
     })
   );
 }
@@ -116,22 +175,20 @@ export async function createApplication(payload) {
 export async function updateApplication(id, changes) {
   return handle(
     await fetch(`${BASE}/api/applications/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(changes),
+      ...jsonRequest("PATCH", changes),
     })
   );
 }
 
 export async function retailorApplication(id) {
   return handle(
-    await fetch(`${BASE}/api/applications/${id}/tailor`, { method: "POST" })
+    await fetch(`${BASE}/api/applications/${id}/tailor`, { method: "POST", headers: authHeaders() })
   );
 }
 
 export async function deleteApplication(id) {
   return handle(
-    await fetch(`${BASE}/api/applications/${id}`, { method: "DELETE" })
+    await fetch(`${BASE}/api/applications/${id}`, { method: "DELETE", headers: authHeaders() })
   );
 }
 
@@ -139,7 +196,7 @@ export async function deleteApplication(id) {
 export async function downloadResume(text, format, filename = "resume") {
   const res = await fetch(`${BASE}/api/export`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ text, format, filename }),
   });
   if (!res.ok) {
@@ -164,7 +221,7 @@ export async function downloadResume(text, format, filename = "resume") {
 }
 
 export async function getHistory() {
-  return handle(await fetch(`${BASE}/api/history`));
+  return handle(await fetch(`${BASE}/api/history`, { headers: authHeaders() }));
 }
 
 export async function getHealth() {

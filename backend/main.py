@@ -6,14 +6,17 @@ from __future__ import annotations
 
 import io
 import os
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 import ai
+import auth
 import database
 import documents
 import interview
@@ -23,23 +26,45 @@ import parsing
 import profiles
 import scoring
 import tailor
+from auth import current_user, get_db
+from models import User
 from roles import ROLE_KEYWORDS
 
 load_dotenv()
 
-app = FastAPI(title="RADAR API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Create tables and apply column migrations once, at startup."""
+    database.init_db()
+    yield
+
+
+app = FastAPI(title="RADAR API", version="2.0.0", lifespan=lifespan)
+
+# In production, restrict to the deployed frontend so a hostile page cannot
+# call this API with a user's token. ALLOWED_ORIGINS is a comma-separated list.
+_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to your frontend origin in production
+    allow_origins=_origins or ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    database.init_db()
+
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 
 class RewriteRequest(BaseModel):
@@ -111,11 +136,47 @@ def health() -> dict:
     }
 
 
+# --------------------------------------------------------------------------
+# Accounts
+# --------------------------------------------------------------------------
+@app.post("/api/auth/signup")
+def signup(req: SignupRequest, db: Session = Depends(get_db)) -> dict:
+    email, password = auth.validate_credentials(req.email, req.password)
+    if auth.find_by_email(db, email):
+        raise HTTPException(status_code=409, detail="An account with that email already exists.")
+
+    user = User(
+        email=email,
+        password_hash=auth.hash_password(password),
+        name=(req.name or "").strip(),
+    )
+    db.add(user)
+    db.commit()
+    return {"token": auth.create_token(user.id), "user": auth.public_user(user)}
+
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)) -> dict:
+    user = auth.find_by_email(db, req.email)
+    # One message for both branches: saying which half was wrong tells an
+    # attacker whether an email is registered.
+    if not user or not auth.verify_password(req.password or "", user.password_hash):
+        raise HTTPException(status_code=401, detail="Email or password is incorrect.")
+    return {"token": auth.create_token(user.id), "user": auth.public_user(user)}
+
+
+@app.get("/api/auth/me")
+def me(user: User = Depends(current_user)) -> dict:
+    return {"user": auth.public_user(user)}
+
+
 @app.post("/api/analyze")
 async def analyze(
     file: UploadFile = File(...),
     role: str = Form(""),
     job_description: str = Form(""),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> dict:
     data = await file.read()
     if not data:
@@ -138,7 +199,7 @@ async def analyze(
         "gemini": ai.gemini_available(),
     }
 
-    analysis_id = database.save_analysis(file.filename, role, report, resume_text=text)
+    analysis_id = database.save_analysis(db, user, file.filename, role, report, resume_text=text)
     report["id"] = analysis_id
     return report
 
@@ -146,8 +207,8 @@ async def analyze(
 # --------------------------------------------------------------------------
 # Interactive gap-fill interview
 # --------------------------------------------------------------------------
-def _load_analysis(analysis_id: int) -> dict:
-    record = database.get_analysis(analysis_id)
+def _load_analysis(db: Session, user: User, analysis_id: int) -> dict:
+    record = database.get_analysis(db, user, analysis_id)
     if not record:
         raise HTTPException(status_code=404, detail="That analysis no longer exists.")
     if not record.get("resume_text"):
@@ -159,21 +220,29 @@ def _load_analysis(analysis_id: int) -> dict:
 
 
 @app.post("/api/interview/questions")
-def interview_questions(req: QuestionsRequest) -> dict:
+def interview_questions(
+    req: QuestionsRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
     """Work out what's missing from a scored resume and ask about it."""
-    record = _load_analysis(req.analysis_id)
+    record = _load_analysis(db, user, req.analysis_id)
     result = interview.build_questions(
         record["resume_text"], record["report"], record.get("role") or ""
     )
-    database.save_questions(req.analysis_id, result["questions"])
+    database.save_questions(db, user, req.analysis_id, result["questions"])
     result["analysis_id"] = req.analysis_id
     return result
 
 
 @app.post("/api/interview/build")
-def interview_build(req: BuildRequest) -> dict:
+def interview_build(
+    req: BuildRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
     """Fold the answers back in, then re-score the rebuilt resume."""
-    record = _load_analysis(req.analysis_id)
+    record = _load_analysis(db, user, req.analysis_id)
     questions = record.get("questions") or []
     if not questions:
         raise HTTPException(
@@ -189,7 +258,7 @@ def interview_build(req: BuildRequest) -> dict:
     # been scored against a pasted job description instead of the role bank).
     before = scoring.grade(record["resume_text"], role=role)
     after = scoring.grade(new_text, role=role)
-    database.save_rebuild(req.analysis_id, req.answers, new_text)
+    database.save_rebuild(db, user, req.analysis_id, req.answers, new_text)
 
     result["analysis_id"] = req.analysis_id
     result["score_before"] = before["overall"]
@@ -201,7 +270,7 @@ def interview_build(req: BuildRequest) -> dict:
 
 
 @app.post("/api/export")
-def export(req: ExportRequest):
+def export(req: ExportRequest, user: User = Depends(current_user)):
     """Download a resume as a formatted .docx or .pdf."""
     if not req.text.strip():
         raise HTTPException(status_code=400, detail="Nothing to export.")
@@ -236,8 +305,10 @@ def export(req: ExportRequest):
 # Master profile
 # --------------------------------------------------------------------------
 @app.get("/api/profile")
-def read_profile() -> dict:
-    stored = database.get_profile()
+def read_profile(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
+    stored = database.get_profile(db, user)
     return {
         "profile": stored or profiles.empty(),
         "exists": stored is not None,
@@ -246,20 +317,26 @@ def read_profile() -> dict:
 
 
 @app.put("/api/profile")
-def write_profile(data: dict) -> dict:
+def write_profile(
+    data: dict, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
     clean = profiles.normalise(data.get("profile", data))
-    database.save_profile(clean)
+    database.save_profile(db, user, clean)
     return {"profile": clean, "usable": profiles.is_usable(clean)}
 
 
 @app.post("/api/profile/from-analysis")
-def profile_from_analysis(req: ProfileFromAnalysis) -> dict:
+def profile_from_analysis(
+    req: ProfileFromAnalysis,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
     """Seed the master profile from a resume already uploaded and scored."""
-    record = _load_analysis(req.analysis_id)
+    record = _load_analysis(db, user, req.analysis_id)
     # The interview-rebuilt version is richer, so prefer it when one exists.
     source = record.get("rebuilt") if req.prefer_rebuilt else None
     clean = profiles.normalise(profiles.extract(source or record["resume_text"]))
-    database.save_profile(clean)
+    database.save_profile(db, user, clean)
     return {
         "profile": clean,
         "usable": profiles.is_usable(clean),
@@ -271,7 +348,7 @@ def profile_from_analysis(req: ProfileFromAnalysis) -> dict:
 # Job postings and the application tracker
 # --------------------------------------------------------------------------
 @app.post("/api/jobs/parse")
-def parse_job(req: JobParseRequest) -> dict:
+def parse_job(req: JobParseRequest, user: User = Depends(current_user)) -> dict:
     """Read a posting from a link or pasted text and pull out its details."""
     try:
         return jobs.ingest(url=req.url, text=req.text)
@@ -281,9 +358,11 @@ def parse_job(req: JobParseRequest) -> dict:
 
 
 @app.get("/api/applications")
-def list_applications() -> dict:
+def list_applications(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
     return {
-        "items": database.list_applications(),
+        "items": database.list_applications(db, user),
         "statuses": list(jobs.STATUSES),
         "job_types": list(jobs.JOB_TYPES),
         "work_modes": list(jobs.WORK_MODES),
@@ -291,7 +370,11 @@ def list_applications() -> dict:
 
 
 @app.post("/api/applications")
-def create_application(req: ApplicationCreate) -> dict:
+def create_application(
+    req: ApplicationCreate,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
     """Add a posting to the tracker, tailoring a resume for it by default."""
     jd_text = req.jd_text.strip()
     meta = {}
@@ -317,7 +400,7 @@ def create_application(req: ApplicationCreate) -> dict:
     })
 
     if req.generate_resume:
-        stored = database.get_profile()
+        stored = database.get_profile(db, user)
         if not profiles.is_usable(stored or {}):
             raise HTTPException(
                 status_code=409,
@@ -328,38 +411,47 @@ def create_application(req: ApplicationCreate) -> dict:
         record["engine"] = result["engine"]
         record["match_score"] = (result["match"] or {}).get("score")
 
-    app_id = database.create_application(record)
-    return database.get_application(app_id)
+    app_id = database.create_application(db, user, record)
+    return database.get_application(db, user, app_id)
 
 
 @app.get("/api/applications/{app_id}")
-def read_application(app_id: int) -> dict:
-    record = database.get_application(app_id)
+def read_application(
+    app_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
+    record = database.get_application(db, user, app_id)
     if not record:
         raise HTTPException(status_code=404, detail="That application no longer exists.")
     return record
 
 
 @app.patch("/api/applications/{app_id}")
-def patch_application(app_id: int, req: ApplicationPatch) -> dict:
+def patch_application(
+    app_id: int,
+    req: ApplicationPatch,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
     changes = {k: v for k, v in req.model_dump().items() if v is not None}
     if changes.get("status") and changes["status"] not in jobs.STATUSES:
         raise HTTPException(
             status_code=400, detail=f"Status must be one of: {', '.join(jobs.STATUSES)}."
         )
-    if not database.update_application(app_id, changes):
+    if not database.update_application(db, user, app_id, changes):
         raise HTTPException(status_code=404, detail="That application no longer exists.")
-    return database.get_application(app_id)
+    return database.get_application(db, user, app_id)
 
 
 @app.post("/api/applications/{app_id}/tailor")
-def retailor_application(app_id: int) -> dict:
+def retailor_application(
+    app_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
     """Rebuild this application's resume from the current profile."""
-    record = database.get_application(app_id)
+    record = database.get_application(db, user, app_id)
     if not record:
         raise HTTPException(status_code=404, detail="That application no longer exists.")
 
-    stored = database.get_profile()
+    stored = database.get_profile(db, user)
     if not profiles.is_usable(stored or {}):
         raise HTTPException(
             status_code=409,
@@ -367,32 +459,34 @@ def retailor_application(app_id: int) -> dict:
         )
 
     result = tailor.tailor(stored, record.get("jd_text") or "", record)
-    database.update_application(app_id, {
+    database.update_application(db, user, app_id, {
         "resume_text": result["resume_text"],
         "engine": result["engine"],
         "match_score": (result["match"] or {}).get("score"),
     })
-    result["application"] = database.get_application(app_id)
+    result["application"] = database.get_application(db, user, app_id)
     return result
 
 
 @app.delete("/api/applications/{app_id}")
-def remove_application(app_id: int) -> dict:
-    if not database.delete_application(app_id):
+def remove_application(
+    app_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
+    if not database.delete_application(db, user, app_id):
         raise HTTPException(status_code=404, detail="That application no longer exists.")
     return {"deleted": app_id}
 
 
 @app.post("/api/rewrite")
-def rewrite(req: RewriteRequest) -> dict:
+def rewrite(req: RewriteRequest, user: User = Depends(current_user)) -> dict:
     if not req.bullet.strip():
         raise HTTPException(status_code=400, detail="Provide a bullet to rewrite.")
     return ai.rewrite_bullet(req.bullet, n=max(1, min(req.variants, 5)))
 
 
 @app.get("/api/history")
-def history() -> dict:
-    return {"items": database.list_history()}
+def history(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    return {"items": database.list_history(db, user)}
 
 
 if __name__ == "__main__":

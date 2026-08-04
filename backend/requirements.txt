@@ -7,3 +7,12 @@ fpdf2>=2.7
 scikit-learn>=1.5
 python-dotenv>=1.0
 google-generativeai>=0.8
+
+# Persistence: SQLAlchemy lets the same models run on SQLite locally and
+# PostgreSQL in production, switched by DATABASE_URL alone.
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+
+# Accounts: bcrypt for password hashing, PyJWT for stateless sessions.
+bcrypt>=4.1
+pyjwt>=2.8

@@ -9,6 +9,22 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
+      # Free web services get an ephemeral filesystem, so a SQLite file is
+      # wiped on every deploy, restart and cold start. Point this at a hosted
+      # Postgres (Neon's free tier works) or accounts will not survive.
+      - key: DATABASE_URL
+        sync: false
+      # Signs the session tokens. Must be set, and must be a long random
+      # string — anyone who knows it can mint a token for any account.
+      - key: JWT_SECRET
+        generateValue: true
+      # Makes a missing JWT_SECRET a startup error rather than a silent
+      # fallback to the insecure development key.
+      - key: RADAR_ENV
+        value: production
+      # Comma-separated list of the frontend origins allowed to call this API.
+      - key: ALLOWED_ORIGINS
+        sync: false
       - key: GEMINI_API_KEY
         sync: false            # set this secret in the Render dashboard
       - key: GEMINI_MODEL
