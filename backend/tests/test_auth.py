@@ -233,3 +233,67 @@ def test_applying_stamps_the_date_for_the_follow_up_timer(client):
     assert client.get(f"/api/applications/{app_id}", headers=bearer(token)).json()["applied_at"] is None
     client.patch(f"/api/applications/{app_id}", json={"status": "Applied"}, headers=bearer(token))
     assert client.get(f"/api/applications/{app_id}", headers=bearer(token)).json()["applied_at"]
+
+
+# --------------------------------------------------------------------------
+# Deadline field and the follow-up clock
+# --------------------------------------------------------------------------
+def _new_app(client, token, **extra):
+    payload = {"text": "Intern at Epsilon. Python. " * 10, "generate_resume": False}
+    payload.update(extra)
+    return client.post("/api/applications", json=payload, headers=bearer(token))
+
+
+def test_a_deadline_round_trips(client):
+    token = register(client, "dl1@example.com").json()["token"]
+    res = _new_app(client, token, deadline="2026-09-30")
+    assert res.status_code == 200
+    assert res.json()["deadline"] == "2026-09-30"
+    assert client.get(f"/api/applications/{res.json()['id']}",
+                      headers=bearer(token)).json()["deadline"] == "2026-09-30"
+
+
+def test_a_deadline_can_be_added_later_and_cleared(client):
+    token = register(client, "dl2@example.com").json()["token"]
+    app_id = _new_app(client, token).json()["id"]
+
+    client.patch(f"/api/applications/{app_id}", json={"deadline": "2026-10-01"},
+                 headers=bearer(token))
+    assert client.get(f"/api/applications/{app_id}",
+                      headers=bearer(token)).json()["deadline"] == "2026-10-01"
+
+    client.patch(f"/api/applications/{app_id}", json={"deadline": ""}, headers=bearer(token))
+    assert client.get(f"/api/applications/{app_id}", headers=bearer(token)).json()["deadline"] == ""
+
+
+@pytest.mark.parametrize("bad", ["30-09-2026", "next friday", "2026-13-01", "2026-02-30"])
+def test_an_unparseable_deadline_is_rejected(client, bad):
+    """A date the colouring cannot read would silently never fire, so reject it."""
+    token = register(client, f"dl-{abs(hash(bad))}@example.com").json()["token"]
+    assert _new_app(client, token, deadline=bad).status_code == 400
+
+
+def test_the_list_carries_an_urgency_verdict(client):
+    token = register(client, "urg1@example.com").json()["token"]
+    _new_app(client, token)
+    item = client.get("/api/applications", headers=bearer(token)).json()["items"][0]
+    assert item["urgency"] == {"level": "neutral", "label": "Not applied yet"}
+
+
+def test_a_passed_deadline_shows_as_urgent_in_the_list(client):
+    token = register(client, "urg2@example.com").json()["token"]
+    _new_app(client, token, deadline="2020-01-01")
+    item = client.get("/api/applications", headers=bearer(token)).json()["items"][0]
+    assert item["urgency"]["level"] == "urgent"
+    assert item["urgency"]["label"] == "Deadline passed"
+
+
+def test_marking_replied_stops_the_clock(client):
+    token = register(client, "urg3@example.com").json()["token"]
+    app_id = _new_app(client, token).json()["id"]
+    client.patch(f"/api/applications/{app_id}", json={"status": "Applied"}, headers=bearer(token))
+
+    client.patch(f"/api/applications/{app_id}", json={"replied": True}, headers=bearer(token))
+    item = client.get("/api/applications", headers=bearer(token)).json()["items"][0]
+    assert item["replied"] is True
+    assert item["urgency"] == {"level": "good", "label": "They replied"}

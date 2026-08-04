@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import os
 from contextlib import asynccontextmanager
+from datetime import date
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -110,6 +111,7 @@ class ApplicationCreate(BaseModel):
     status: str = "Saved"
     notes: str = ""
     jd_text: str = ""
+    deadline: str = ""
     generate_resume: bool = True
 
 
@@ -125,6 +127,8 @@ class ApplicationPatch(BaseModel):
     status: str | None = None
     notes: str | None = None
     resume_text: str | None = None
+    deadline: str | None = None
+    replied: bool | None = None
 
 
 @app.get("/api/health")
@@ -357,6 +361,25 @@ def parse_job(req: JobParseRequest, user: User = Depends(current_user)) -> dict:
         raise HTTPException(status_code=422, detail=str(exc))
 
 
+def _clean_deadline(value: str | None) -> str:
+    """
+    Accept an empty string or a YYYY-MM-DD date, and nothing else.
+
+    The pipeline colours a card red once the deadline has passed, so a value
+    that cannot be parsed would silently never trigger. Rejecting it here
+    means a bad date is a visible 400 rather than a warning that never fires.
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="Deadline must be a date in YYYY-MM-DD form."
+        )
+
+
 @app.get("/api/applications")
 def list_applications(
     user: User = Depends(current_user), db: Session = Depends(get_db)
@@ -397,6 +420,7 @@ def create_application(
         "status": req.status or "Saved",
         "notes": req.notes,
         "jd_text": jd_text,
+        "deadline": _clean_deadline(req.deadline),
     })
 
     if req.generate_resume:
@@ -437,6 +461,8 @@ def patch_application(
         raise HTTPException(
             status_code=400, detail=f"Status must be one of: {', '.join(jobs.STATUSES)}."
         )
+    if "deadline" in changes:
+        changes["deadline"] = _clean_deadline(changes["deadline"])
     if not database.update_application(db, user, app_id, changes):
         raise HTTPException(status_code=404, detail="That application no longer exists.")
     return database.get_application(db, user, app_id)

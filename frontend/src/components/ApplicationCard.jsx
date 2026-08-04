@@ -9,17 +9,27 @@ const STATUS_TONE = {
   Rejected: { bg: "rgba(224,86,86,0.1)", fg: "var(--critical)" },
 };
 
-export default function ApplicationCard({ app, statuses, onMove, onDelete, onView }) {
+export default function ApplicationCard({ app, statuses, onMove, onDelete, onView, onReplied }) {
   const tone = STATUS_TONE[app.status] || STATUS_TONE.Saved;
   // The list query returns a computed has_resume flag; a freshly created record
   // comes back as the full row instead, carrying resume_text itself.
   const hasResume = Boolean(app.has_resume || app.resume_text);
-  const facts = [app.job_type, app.work_mode, app.location, app.stipend, app.duration].filter(
-    Boolean
-  );
+  const facts = [
+    app.job_type,
+    app.work_mode,
+    app.location,
+    app.stipend,
+    app.duration,
+    app.deadline && `Apply by ${app.deadline}`,
+  ].filter(Boolean);
+  // Computed by the backend so the rule has one definition; see urgency.py.
+  const urg = app.urgency || { level: "neutral", label: "" };
+  // Offering "mark as replied" on a closed-out application would just be noise.
+  const canMarkReplied =
+    !app.replied && !["Rejected", "Offer"].includes(app.status) && app.status !== "Saved";
 
   return (
-    <div className="card">
+    <div className={`card edge edge-${urg.level}`}>
       <div
         style={{
           display: "flex",
@@ -50,6 +60,7 @@ export default function ApplicationCard({ app, statuses, onMove, onDelete, onVie
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {urg.label && <span className={`urg urg-${urg.level}`}>{urg.label}</span>}
           {app.match_score != null && <span className="pill">{app.match_score}% match</span>}
           <span
             className="grade-badge"
@@ -103,6 +114,16 @@ export default function ApplicationCard({ app, statuses, onMove, onDelete, onVie
         <button className="btn ghost" onClick={() => onView(app.id)} style={{ padding: "9px 16px" }}>
           {hasResume ? "View resume" : "Build resume"}
         </button>
+
+        {canMarkReplied && (
+          <button
+            className="btn ghost"
+            onClick={() => onReplied(app.id)}
+            style={{ padding: "9px 16px" }}
+          >
+            Mark as replied
+          </button>
+        )}
 
         <button
           className="link-btn"

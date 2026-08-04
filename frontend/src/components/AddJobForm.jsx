@@ -17,6 +17,7 @@ const blank = {
   job_type: "",
   work_mode: "",
   notes: "",
+  deadline: "",
 };
 
 /**
@@ -194,12 +195,21 @@ export default function AddJobForm({ onAdd, onParse, facets, canTailor }) {
                 ))}
               </select>
             </label>
+
+            <label className="field" style={{ marginBottom: 0 }}>
+              <span className="field-label">Apply by</span>
+              <input
+                type="date"
+                value={details.deadline || ""}
+                onChange={(e) => set("deadline", e.target.value)}
+              />
+            </label>
           </div>
 
           <label className="field" style={{ marginTop: 18, marginBottom: 0 }}>
             <span className="field-label">Notes</span>
             <textarea
-              placeholder="Referral contact, deadline, anything you want to remember."
+              placeholder="Referral contact, who to follow up with, anything you want to remember."
               value={details.notes || ""}
               onChange={(e) => set("notes", e.target.value)}
               style={{ minHeight: 80 }}

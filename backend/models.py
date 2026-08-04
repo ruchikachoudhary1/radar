@@ -121,6 +121,11 @@ class Application(Base):
     # When the user actually applied — drives the "silent for N days" colouring.
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     replied: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The company's own closing date, kept as the plain YYYY-MM-DD the user
+    # typed. A date rather than a timestamp: postings say "apply by the 14th",
+    # never "by 14:30 on the 14th", and storing a timezone here would invent
+    # precision the source never had.
+    deadline: Mapped[str] = mapped_column(String(10), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

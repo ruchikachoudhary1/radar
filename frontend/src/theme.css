@@ -183,6 +183,25 @@ textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
 .chip.on { border-color: rgba(53,196,107,0.4); color: var(--good); background: rgba(53,196,107,0.08); }
 .chip.off { border-color: rgba(224,86,86,0.35); color: var(--critical); background: rgba(224,86,86,0.07); }
 
+/* ---------- Urgency ----------
+   Levels come from the backend (urgency.py). A card carries a coloured left
+   edge so a column of applications can be read at a glance, plus a matching
+   badge for the specific reason. Colour is never the only signal — the badge
+   always states it in words. */
+.urg { font-size: 12px; padding: 4px 11px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap; }
+.urg-good    { background: rgba(53,196,107,0.12);  color: var(--good);     border-color: rgba(53,196,107,0.35); }
+.urg-active  { background: var(--accent-dim);      color: var(--accent-2); border-color: rgba(232,184,75,0.3); }
+.urg-warn    { background: rgba(250,178,25,0.13);  color: var(--warning);  border-color: rgba(250,178,25,0.38); }
+.urg-urgent  { background: rgba(224,86,86,0.12);   color: var(--critical); border-color: rgba(224,86,86,0.4); }
+.urg-neutral { background: var(--surface-3);       color: var(--ink-3);    border-color: var(--border); }
+
+.card.edge { border-left-width: 3px; border-left-style: solid; }
+.card.edge-good    { border-left-color: var(--good); }
+.card.edge-active  { border-left-color: var(--accent); }
+.card.edge-warn    { border-left-color: var(--warning); }
+.card.edge-urgent  { border-left-color: var(--critical); }
+.card.edge-neutral { border-left-color: var(--border); }
+
 /* ---------- Fixes list ---------- */
 .fix { display: flex; gap: 13px; padding: 13px 0; border-bottom: 1px solid var(--border-soft); }
 .fix:last-child { border-bottom: none; }

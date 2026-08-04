@@ -30,6 +30,7 @@ export default function TrackerView() {
   const [error, setError] = useState("");
   const [open, setOpen] = useState(null);
   const [filters, setFilters] = useState({ status: ALL, job_type: ALL, work_mode: ALL });
+  const [onlyFollowUp, setOnlyFollowUp] = useState(false);
 
   useEffect(() => {
     refresh();
@@ -71,6 +72,17 @@ export default function TrackerView() {
     }
   }
 
+  /** Stop the follow-up clock once a company has actually come back. */
+  async function markReplied(id) {
+    setError("");
+    try {
+      const updated = await updateApplication(id, { replied: true });
+      setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...updated } : it)));
+    } catch (e) {
+      setError(e.message || "Couldn't update that application.");
+    }
+  }
+
   async function remove(id) {
     setError("");
     try {
@@ -106,11 +118,15 @@ export default function TrackerView() {
     }
   }
 
+  const needsFollowUp = (it) => ["warn", "urgent"].includes(it.urgency?.level);
+  const followUpCount = items.filter(needsFollowUp).length;
+
   const shown = items.filter(
     (it) =>
       (filters.status === ALL || it.status === filters.status) &&
       (filters.job_type === ALL || it.job_type === filters.job_type) &&
-      (filters.work_mode === ALL || it.work_mode === filters.work_mode)
+      (filters.work_mode === ALL || it.work_mode === filters.work_mode) &&
+      (!onlyFollowUp || needsFollowUp(it))
   );
 
   const counts = {};
@@ -164,6 +180,19 @@ export default function TrackerView() {
           {filterRow("status", "Stage", facets.statuses)}
           {filterRow("job_type", "Type", facets.job_types)}
           {filterRow("work_mode", "Mode", facets.work_modes)}
+
+          {followUpCount > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span className="muted" style={{ minWidth: 74 }}>Chase</span>
+              <button
+                className={`chip ${onlyFollowUp ? "off" : ""}`}
+                style={{ cursor: "pointer" }}
+                onClick={() => setOnlyFollowUp((v) => !v)}
+              >
+                {followUpCount} need{followUpCount === 1 ? "s" : ""} following up
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -173,6 +202,8 @@ export default function TrackerView() {
         <div className="empty">
           {items.length === 0
             ? "No applications yet. Paste a job link above to add your first."
+            : onlyFollowUp
+            ? "Nothing needs chasing right now."
             : "No applications match these filters."}
         </div>
       ) : (
@@ -185,6 +216,7 @@ export default function TrackerView() {
               onMove={move}
               onDelete={remove}
               onView={view}
+              onReplied={markReplied}
             />
           ))}
         </div>

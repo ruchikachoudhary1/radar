@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import urgency
 from db import init_db  # re-exported: main.py calls database.init_db() on startup
 from models import Analysis, Application, Profile, User
 
@@ -28,13 +29,14 @@ __all__ = [
 APPLICATION_FIELDS = (
     "company", "title", "url", "job_type", "work_mode", "location",
     "stipend", "duration", "status", "notes", "jd_text", "resume_text",
-    "match_score", "engine", "replied",
+    "match_score", "engine", "replied", "deadline",
 )
 
 # Large columns are omitted from the list view and fetched per-application.
 _LIST_FIELDS = (
     "id", "company", "title", "url", "job_type", "work_mode", "location",
-    "stipend", "duration", "status", "notes", "match_score", "engine", "replied",
+    "stipend", "duration", "status", "notes", "match_score", "engine",
+    "replied", "deadline",
 )
 
 
@@ -148,6 +150,14 @@ def _as_dict(row: Application, fields: tuple[str, ...]) -> dict:
     out["created_at"] = _iso(row.created_at)
     out["updated_at"] = _iso(row.updated_at)
     out["applied_at"] = _iso(row.applied_at)
+    # Computed server-side so the pipeline colouring has one definition, and
+    # so the rule that decides what the user chases can be tested.
+    out["urgency"] = urgency.assess(
+        status=row.status,
+        applied_at=row.applied_at,
+        deadline=row.deadline or "",
+        replied=bool(row.replied),
+    )
     return out
 
 

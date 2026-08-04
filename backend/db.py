@@ -74,6 +74,7 @@ _LEGACY_COLUMNS = {
         "user_id": "INTEGER",
         "applied_at": "TIMESTAMP",
         "replied": "BOOLEAN DEFAULT 0",
+        "deadline": "VARCHAR(10)",
     },
 }
 
