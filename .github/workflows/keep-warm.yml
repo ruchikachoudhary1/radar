@@ -1,0 +1,46 @@
+# Wakes the backend each morning.
+#
+# Render's free tier stops the container after fifteen minutes of inactivity,
+# and the next request then waits roughly fifty seconds for a cold start. A
+# scheduled ping means the first person to open the app in the day — usually
+# the person being shown it — does not sit through that.
+#
+# It deliberately does NOT build anyone's job feed. Doing that would need a
+# stored credential for each user, and the feed is cheap enough to fetch when
+# the page is opened. This keeps the service warm; nothing more.
+name: Keep the API warm
+
+on:
+  schedule:
+    # 03:30 UTC is 09:00 IST. GitHub runs scheduled jobs late under load, so
+    # treat this as "some time around nine", not a guarantee.
+    - cron: "30 3 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the API
+        run: |
+          URL="${{ vars.RADAR_API_URL }}"
+          if [ -z "$URL" ]; then
+            echo "Set a repository variable RADAR_API_URL to your Render URL."
+            echo "Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          fi
+
+          # A cold start can take most of a minute, so allow for it and retry
+          # rather than reporting a failure the first time it is slow.
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 "$URL/api/health" || true)
+            echo "attempt $attempt: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "API is awake."
+              exit 0
+            fi
+            sleep 20
+          done
+
+          echo "API did not respond after three attempts."
+          exit 1

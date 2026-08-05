@@ -239,6 +239,28 @@ export async function getHistory() {
   return handle(await fetch(`${BASE}/api/history`, { headers: authHeaders() }));
 }
 
+// --- Job feed --------------------------------------------------------------
+
+export async function getPreferences() {
+  return handle(await fetch(`${BASE}/api/preferences`, { headers: authHeaders() }));
+}
+
+export async function savePreferences(preferences) {
+  return handle(
+    await fetch(`${BASE}/api/preferences`, { ...jsonRequest("PUT", preferences) })
+  );
+}
+
+export async function checkBoard({ source, token }) {
+  return handle(
+    await fetch(`${BASE}/api/feed/check`, { ...jsonRequest("POST", { source, token }) })
+  );
+}
+
+export async function getFeed() {
+  return handle(await fetch(`${BASE}/api/feed`, { headers: authHeaders() }));
+}
+
 export async function getSummary() {
   return handle(await fetch(`${BASE}/api/summary`, { headers: authHeaders() }));
 }

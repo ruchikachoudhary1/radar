@@ -20,8 +20,10 @@ import ai
 import auth
 import coverletter
 import database
+import db as db_module
 import documents
 import interview
+import jobfeed
 import jobs
 import matching
 import parsing
@@ -132,11 +134,33 @@ class ApplicationPatch(BaseModel):
     replied: bool | None = None
 
 
+class SavedBoard(BaseModel):
+    source: str = "greenhouse"
+    token: str = ""
+    label: str = ""
+
+
+class PreferencesUpdate(BaseModel):
+    roles: list[str] = []
+    locations: list[str] = []
+    companies: list[SavedBoard] = []
+    internships_only: bool = False
+    remote_only: bool = False
+
+
+class BoardCheck(BaseModel):
+    source: str = "greenhouse"
+    token: str = ""
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
         "status": "ok",
         "gemini_configured": ai.gemini_available(),
+        # Names the storage backend so a missing DATABASE_URL is visible rather
+        # than silently falling back to a file that the next restart wipes.
+        "storage": "postgres" if db_module.is_postgres() else "sqlite",
         "roles": list(ROLE_KEYWORDS.keys()),
     }
 
@@ -562,6 +586,86 @@ def rewrite(req: RewriteRequest, user: User = Depends(current_user)) -> dict:
 @app.get("/api/history")
 def history(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     return {"items": database.list_history(db, user)}
+
+
+# --------------------------------------------------------------------------
+# Job feed
+# --------------------------------------------------------------------------
+@app.get("/api/preferences")
+def read_preferences(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
+    return {"preferences": database.get_preferences(db, user), "sources": sorted(jobfeed.SOURCES)}
+
+
+@app.put("/api/preferences")
+def write_preferences(
+    req: PreferencesUpdate,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    data = req.model_dump()
+    # Validate every saved board up front. A bad token would otherwise fail
+    # silently on each refresh, and the user would just see an empty feed.
+    for entry in data["companies"]:
+        source = (entry.get("source") or "").lower()
+        if source not in jobfeed.SOURCES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown source '{entry.get('source')}'. "
+                       f"Use one of: {', '.join(sorted(jobfeed.SOURCES))}.",
+            )
+        if not jobfeed.TOKEN_RE.match((entry.get("token") or "").strip()):
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{entry.get('token')}' isn't a valid board name.",
+            )
+    return {"preferences": database.save_preferences(db, user, data)}
+
+
+@app.post("/api/feed/check")
+def check_board(req: BoardCheck, user: User = Depends(current_user)) -> dict:
+    """Confirm a board exists before the user saves it."""
+    try:
+        jobs = jobfeed.fetch_board(req.source, req.token)
+    except jobfeed.FeedError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {
+        "ok": True,
+        "count": len(jobs),
+        "company": jobs[0]["company"] if jobs else req.token,
+    }
+
+
+@app.get("/api/feed")
+def job_feed(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """
+    Today's matching postings from the user's saved boards.
+
+    Fetched on request rather than served from a cache table: the volume is a
+    handful of boards, and a stale feed is worse than a slow one. The daily
+    GitHub Actions ping exists to keep the container awake, not to build this.
+    """
+    prefs = database.get_preferences(db, user)
+    if not prefs.get("companies"):
+        return {"jobs": [], "problems": [], "configured": False, "preferences": prefs}
+
+    result = jobfeed.collect(prefs["companies"], prefs)
+    database.stamp_feed_refresh(db, user)
+
+    # Mark anything already in the tracker so the user is not offered a job
+    # they have already filed.
+    tracked = {
+        (a.get("url") or "").strip()
+        for a in database.list_applications(db, user)
+        if a.get("url")
+    }
+    for job in result["jobs"]:
+        job["tracked"] = job["url"] in tracked
+
+    result["configured"] = True
+    result["preferences"] = database.get_preferences(db, user)
+    return result
 
 
 @app.get("/api/summary")

@@ -48,6 +48,9 @@ class User(Base):
     profile: Mapped["Profile | None"] = relationship(
         back_populates="user", cascade="all, delete-orphan", uselist=False
     )
+    preference: Mapped["Preference | None"] = relationship(
+        back_populates="user", cascade="all, delete-orphan", uselist=False
+    )
     analyses: Mapped[list["Analysis"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -70,6 +73,26 @@ class Profile(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="profile")
+
+
+class Preference(Base):
+    """What this user wants the job feed to show them."""
+
+    __tablename__ = "preferences"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_preference_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    # When the feed was last rebuilt, so the UI can say how fresh it is.
+    refreshed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    user: Mapped[User] = relationship(back_populates="preference")
 
 
 class Analysis(Base):

@@ -15,12 +15,13 @@ from sqlalchemy.orm import Session
 
 import urgency
 from db import init_db  # re-exported: main.py calls database.init_db() on startup
-from models import Analysis, Application, Profile, User
+from models import Analysis, Application, Preference, Profile, User
 
 __all__ = [
     "init_db",
     "save_analysis", "get_analysis", "save_questions", "save_rebuild", "list_history",
     "get_profile", "save_profile",
+    "get_preferences", "save_preferences", "stamp_feed_refresh",
     "create_application", "get_application", "list_applications",
     "update_application", "delete_application", "summarise",
     "APPLICATION_FIELDS",
@@ -128,6 +129,46 @@ def list_history(db: Session, user: User, limit: int = 20) -> list[dict]:
 # --------------------------------------------------------------------------
 # Master profile
 # --------------------------------------------------------------------------
+DEFAULT_PREFERENCES = {
+    "roles": [],
+    "locations": [],
+    "companies": [],
+    "internships_only": False,
+    "remote_only": False,
+}
+
+
+def get_preferences(db: Session, user: User) -> dict:
+    row = db.scalar(select(Preference).where(Preference.user_id == user.id))
+    prefs = dict(DEFAULT_PREFERENCES)
+    if row:
+        prefs.update(row.data or {})
+        prefs["refreshed_at"] = _iso(row.refreshed_at)
+    else:
+        prefs["refreshed_at"] = None
+    return prefs
+
+
+def save_preferences(db: Session, user: User, data: dict) -> dict:
+    row = db.scalar(select(Preference).where(Preference.user_id == user.id))
+    clean = {k: data.get(k, v) for k, v in DEFAULT_PREFERENCES.items()}
+    if row:
+        row.data = clean
+    else:
+        db.add(Preference(user_id=user.id, data=clean))
+    db.commit()
+    return get_preferences(db, user)
+
+
+def stamp_feed_refresh(db: Session, user: User) -> None:
+    row = db.scalar(select(Preference).where(Preference.user_id == user.id))
+    if not row:
+        row = Preference(user_id=user.id, data=dict(DEFAULT_PREFERENCES))
+        db.add(row)
+    row.refreshed_at = datetime.now(timezone.utc)
+    db.commit()
+
+
 def get_profile(db: Session, user: User) -> dict | None:
     row = db.scalar(select(Profile).where(Profile.user_id == user.id))
     return row.data if row else None

@@ -7,11 +7,13 @@ import ProfileView from "./components/ProfileView.jsx";
 import TrackerView from "./components/TrackerView.jsx";
 import AuthView from "./components/AuthView.jsx";
 import DashboardView from "./components/DashboardView.jsx";
+import FeedView from "./components/FeedView.jsx";
 import { getHealth, getMe, getToken, setToken, onSessionExpired } from "./api.js";
 
 const NAV = [
   { id: "dashboard", label: "Dashboard" },
   { id: "analyze", label: "Analyze" },
+  { id: "feed", label: "Job feed" },
   { id: "tracker", label: "Applications" },
   { id: "profile", label: "Profile" },
   { id: "rewrite", label: "Rewrite" },
@@ -156,6 +158,7 @@ export default function App() {
           <DashboardView onNavigate={setView} userName={user.name} />
         )}
         {view === "analyze" && <AnalyzeView roles={roles} />}
+        {view === "feed" && <FeedView onTracked={() => {}} />}
         {view === "tracker" && <TrackerView />}
         {view === "profile" && <ProfileView onAccountDeleted={signOut} />}
         {view === "rewrite" && <RewriteView gemini={health?.gemini_configured} />}
