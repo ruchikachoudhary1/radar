@@ -6,9 +6,11 @@ import MethodView from "./components/MethodView.jsx";
 import ProfileView from "./components/ProfileView.jsx";
 import TrackerView from "./components/TrackerView.jsx";
 import AuthView from "./components/AuthView.jsx";
+import DashboardView from "./components/DashboardView.jsx";
 import { getHealth, getMe, getToken, setToken, onSessionExpired } from "./api.js";
 
 const NAV = [
+  { id: "dashboard", label: "Dashboard" },
   { id: "analyze", label: "Analyze" },
   { id: "tracker", label: "Applications" },
   { id: "profile", label: "Profile" },
@@ -29,7 +31,7 @@ function BrandMark() {
 }
 
 export default function App() {
-  const [view, setView] = useState("analyze");
+  const [view, setView] = useState("dashboard");
   const [health, setHealth] = useState(null);
   const [offline, setOffline] = useState(false);
   const [user, setUser] = useState(null);
@@ -69,7 +71,7 @@ export default function App() {
   function signOut() {
     setToken("");
     setUser(null);
-    setView("analyze");
+    setView("dashboard");
     setNotice("");
   }
 
@@ -149,6 +151,9 @@ export default function App() {
             Can't reach the backend API. Start it with <code>uvicorn main:app</code> in the backend
             folder, then reload.
           </div>
+        )}
+        {view === "dashboard" && (
+          <DashboardView onNavigate={setView} userName={user.name} />
         )}
         {view === "analyze" && <AnalyzeView roles={roles} />}
         {view === "tracker" && <TrackerView />}

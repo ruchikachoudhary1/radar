@@ -515,6 +515,12 @@ def history(user: User = Depends(current_user), db: Session = Depends(get_db)) -
     return {"items": database.list_history(db, user)}
 
 
+@app.get("/api/summary")
+def summary(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    """Everything the dashboard shows, in one request."""
+    return database.summarise(db, user)
+
+
 if __name__ == "__main__":
     import uvicorn
 

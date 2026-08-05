@@ -22,7 +22,7 @@ __all__ = [
     "save_analysis", "get_analysis", "save_questions", "save_rebuild", "list_history",
     "get_profile", "save_profile",
     "create_application", "get_application", "list_applications",
-    "update_application", "delete_application",
+    "update_application", "delete_application", "summarise",
     "APPLICATION_FIELDS",
 ]
 
@@ -193,6 +193,46 @@ def list_applications(db: Session, user: User) -> list[dict]:
         item["has_resume"] = bool(row.resume_text)
         out.append(item)
     return out
+
+
+def summarise(db: Session, user: User) -> dict:
+    """
+    The dashboard's numbers, computed in one pass over the user's rows.
+
+    Counts come from the same urgency rule the cards use, so the dashboard can
+    never disagree with the pipeline about what needs chasing.
+    """
+    apps = list_applications(db, user)
+    analyses = list_history(db, user, limit=200)
+
+    by_status: dict[str, int] = {}
+    by_level: dict[str, int] = {}
+    for app in apps:
+        by_status[app["status"]] = by_status.get(app["status"], 0) + 1
+        level = (app.get("urgency") or {}).get("level", "neutral")
+        by_level[level] = by_level.get(level, 0) + 1
+
+    chase = [a for a in apps if urgency.needs_follow_up((a.get("urgency") or {}).get("level", ""))]
+    # Most pressing first, then the longest-waiting.
+    chase.sort(key=lambda a: (a["urgency"]["level"] != "urgent", a.get("applied_at") or ""))
+
+    scores = [a["overall"] for a in analyses]
+    return {
+        "totals": {
+            "applications": len(apps),
+            "analyses": len(analyses),
+            "needs_follow_up": len(chase),
+            "replied": sum(1 for a in apps if a.get("replied")),
+            "with_resume": sum(1 for a in apps if a.get("has_resume")),
+        },
+        "by_status": by_status,
+        "by_level": by_level,
+        "follow_ups": chase[:6],
+        "recent_applications": apps[:5],
+        "recent_analyses": analyses[:5],
+        "best_score": max(scores) if scores else None,
+        "latest_score": scores[0] if scores else None,
+    }
 
 
 def update_application(db: Session, user: User, app_id: int, data: dict) -> bool:

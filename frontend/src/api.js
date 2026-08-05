@@ -224,6 +224,10 @@ export async function getHistory() {
   return handle(await fetch(`${BASE}/api/history`, { headers: authHeaders() }));
 }
 
+export async function getSummary() {
+  return handle(await fetch(`${BASE}/api/summary`, { headers: authHeaders() }));
+}
+
 export async function getHealth() {
   return handle(await fetch(`${BASE}/api/health`));
 }

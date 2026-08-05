@@ -297,3 +297,51 @@ def test_marking_replied_stops_the_clock(client):
     item = client.get("/api/applications", headers=bearer(token)).json()["items"][0]
     assert item["replied"] is True
     assert item["urgency"] == {"level": "good", "label": "They replied"}
+
+
+# --------------------------------------------------------------------------
+# Dashboard summary
+# --------------------------------------------------------------------------
+def test_summary_of_a_new_account_is_empty_not_missing(client):
+    token = register(client, "sum1@example.com").json()["token"]
+    body = client.get("/api/summary", headers=bearer(token)).json()
+    assert body["totals"] == {
+        "applications": 0, "analyses": 0, "needs_follow_up": 0,
+        "replied": 0, "with_resume": 0,
+    }
+    assert body["follow_ups"] == []
+    assert body["best_score"] is None
+
+
+def test_summary_counts_stages_and_follow_ups(client):
+    token = register(client, "sum2@example.com").json()["token"]
+    quiet = _new_app(client, token, deadline="2020-01-01").json()["id"]
+    _new_app(client, token)
+
+    body = client.get("/api/summary", headers=bearer(token)).json()
+    assert body["totals"]["applications"] == 2
+    assert body["by_status"]["Saved"] == 2
+    assert body["totals"]["needs_follow_up"] == 1
+    assert [f["id"] for f in body["follow_ups"]] == [quiet]
+
+
+def test_summary_agrees_with_the_list_about_what_needs_chasing(client):
+    """The dashboard and the tracker must never disagree — same rule, one source."""
+    token = register(client, "sum3@example.com").json()["token"]
+    _new_app(client, token, deadline="2020-01-01")
+    _new_app(client, token, deadline="2099-01-01")
+
+    listed = client.get("/api/applications", headers=bearer(token)).json()["items"]
+    from_list = sum(1 for a in listed if a["urgency"]["level"] in ("warn", "urgent"))
+    assert client.get("/api/summary", headers=bearer(token)).json()["totals"]["needs_follow_up"] == from_list
+
+
+def test_summary_is_scoped_to_the_signed_in_user(client):
+    a = register(client, "sum4@example.com").json()["token"]
+    b = register(client, "sum5@example.com").json()["token"]
+    _new_app(client, a)
+    assert client.get("/api/summary", headers=bearer(b)).json()["totals"]["applications"] == 0
+
+
+def test_summary_requires_a_token(client):
+    assert client.get("/api/summary").status_code == 401
