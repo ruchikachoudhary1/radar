@@ -29,7 +29,7 @@ __all__ = [
 APPLICATION_FIELDS = (
     "company", "title", "url", "job_type", "work_mode", "location",
     "stipend", "duration", "status", "notes", "jd_text", "resume_text",
-    "match_score", "engine", "replied", "deadline",
+    "match_score", "engine", "replied", "deadline", "cover_letter",
 )
 
 # Large columns are omitted from the list view and fetched per-application.
@@ -191,6 +191,7 @@ def list_applications(db: Session, user: User) -> list[dict]:
     for row in rows:
         item = _as_dict(row, _LIST_FIELDS)
         item["has_resume"] = bool(row.resume_text)
+        item["has_letter"] = bool(row.cover_letter)
         out.append(item)
     return out
 

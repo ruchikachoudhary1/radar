@@ -75,6 +75,7 @@ _LEGACY_COLUMNS = {
         "applied_at": "TIMESTAMP",
         "replied": "BOOLEAN DEFAULT 0",
         "deadline": "VARCHAR(10)",
+        "cover_letter": "TEXT",
     },
 }
 

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 import ai
 import auth
+import coverletter
 import database
 import documents
 import interview
@@ -516,6 +517,28 @@ def retailor_application(
         "engine": result["engine"],
         "match_score": (result["match"] or {}).get("score"),
     })
+    result["application"] = database.get_application(db, user, app_id)
+    return result
+
+
+@app.post("/api/applications/{app_id}/cover-letter")
+def write_cover_letter(
+    app_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
+    """Write (or rewrite) the cover letter for this application."""
+    record = database.get_application(db, user, app_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="That application no longer exists.")
+
+    stored = database.get_profile(db, user)
+    if not profiles.is_usable(stored or {}):
+        raise HTTPException(
+            status_code=409,
+            detail="Set up your profile first — the letter is written from it.",
+        )
+
+    result = coverletter.write(stored, record.get("jd_text") or "", record)
+    database.update_application(db, user, app_id, {"cover_letter": result["letter_text"]})
     result["application"] = database.get_application(db, user, app_id)
     return result
 

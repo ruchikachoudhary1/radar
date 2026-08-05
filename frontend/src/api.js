@@ -192,6 +192,15 @@ export async function retailorApplication(id) {
   );
 }
 
+export async function writeCoverLetter(id) {
+  return handle(
+    await fetch(`${BASE}/api/applications/${id}/cover-letter`, {
+      method: "POST",
+      headers: authHeaders(),
+    })
+  );
+}
+
 export async function deleteApplication(id) {
   return handle(
     await fetch(`${BASE}/api/applications/${id}`, { method: "DELETE", headers: authHeaders() })

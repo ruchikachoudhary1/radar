@@ -9,6 +9,7 @@ import {
   retailorApplication,
   updateApplication,
   downloadResume,
+  writeCoverLetter,
 } from "../api.js";
 import AddJobForm from "./AddJobForm.jsx";
 import ApplicationCard from "./ApplicationCard.jsx";
@@ -121,6 +122,19 @@ export default function TrackerView() {
   const needsFollowUp = (it) => ["warn", "urgent"].includes(it.urgency?.level);
   const followUpCount = items.filter(needsFollowUp).length;
 
+  async function buildLetter(id) {
+    setError("");
+    try {
+      const res = await writeCoverLetter(id);
+      setOpen(res.application);
+      setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...res.application } : it)));
+      return res;
+    } catch (e) {
+      setError(e.message || "Couldn't write that cover letter.");
+      return null;
+    }
+  }
+
   const shown = items.filter(
     (it) =>
       (filters.status === ALL || it.status === filters.status) &&
@@ -228,24 +242,36 @@ export default function TrackerView() {
           onClose={() => setOpen(null)}
           onRebuild={rebuild}
           onDownload={downloadResume}
+          onWriteLetter={buildLetter}
         />
       )}
     </div>
   );
 }
 
-/** The tailored resume for one application, with export buttons. */
-function ResumeDrawer({ app, onClose, onRebuild, onDownload }) {
+/** The tailored resume and cover letter for one application, with exports. */
+function ResumeDrawer({ app, onClose, onRebuild, onDownload, onWriteLetter }) {
   const [busy, setBusy] = useState("");
+  const [tab, setTab] = useState("resume");
+
+  const stem = `${app.company || "resume"}-${app.title || "role"}`
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
 
   async function save(format) {
     setBusy(format);
     try {
-      const stem = `${app.company || "resume"}-${app.title || "role"}`
-        .replace(/[^a-zA-Z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .toLowerCase();
       await onDownload(app.resume_text, format, stem);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveLetter(format) {
+    setBusy(`letter-${format}`);
+    try {
+      await onDownload(app.cover_letter, format, `${stem}-cover-letter`);
     } finally {
       setBusy("");
     }
@@ -281,7 +307,32 @@ function ResumeDrawer({ app, onClose, onRebuild, onDownload }) {
         </div>
       </div>
 
-      {app.resume_text ? (
+      <div className="chips" style={{ marginTop: 14 }}>
+        <button
+          className={`chip ${tab === "resume" ? "on" : ""}`}
+          style={{ cursor: "pointer" }}
+          onClick={() => setTab("resume")}
+        >
+          Resume
+        </button>
+        <button
+          className={`chip ${tab === "letter" ? "on" : ""}`}
+          style={{ cursor: "pointer" }}
+          onClick={() => setTab("letter")}
+        >
+          Cover letter
+        </button>
+      </div>
+
+      {tab === "letter" ? (
+        <CoverLetterPanel
+          app={app}
+          busy={busy}
+          setBusy={setBusy}
+          onWriteLetter={onWriteLetter}
+          onSave={saveLetter}
+        />
+      ) : app.resume_text ? (
         <>
           <pre
             style={{
@@ -346,5 +397,91 @@ function ResumeDrawer({ app, onClose, onRebuild, onDownload }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The cover letter for one application.
+ *
+ * Both engines are told to leave a marked [add …] placeholder rather than
+ * invent a specific, so the count of those is surfaced rather than hidden —
+ * an unfinished letter the user knows about beats a complete-looking one with
+ * a fabricated detail in it.
+ */
+function CoverLetterPanel({ app, busy, setBusy, onWriteLetter, onSave }) {
+  const [placeholders, setPlaceholders] = useState(null);
+
+  async function write() {
+    setBusy("letter");
+    const res = await onWriteLetter(app.id);
+    if (res) setPlaceholders(res.placeholders);
+    setBusy("");
+  }
+
+  if (!app.cover_letter) {
+    return (
+      <div style={{ marginTop: 18 }}>
+        <div className="muted" style={{ marginBottom: 14 }}>
+          Written from your master profile and this posting — the same source as the resume, so
+          the two agree with each other.
+        </div>
+        <button className="btn primary" onClick={write} disabled={!!busy}>
+          {busy === "letter" && <span className="spinner" />}
+          Write a cover letter
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {placeholders > 0 && (
+        <div className="banner info" style={{ marginTop: 16, marginBottom: 0 }}>
+          {placeholders === 1
+            ? "One spot is marked [add …] — fill it in before you send this."
+            : `${placeholders} spots are marked [add …] — fill them in before you send this.`}{" "}
+          Nothing was invented to cover the gap.
+        </div>
+      )}
+
+      <pre
+        style={{
+          marginTop: 18,
+          padding: 18,
+          background: "var(--surface-2)",
+          border: "1px solid var(--border-soft)",
+          borderRadius: "var(--radius-sm)",
+          whiteSpace: "pre-wrap",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontSize: 13,
+          lineHeight: 1.7,
+          maxHeight: 460,
+          overflowY: "auto",
+        }}
+      >
+        {app.cover_letter}
+      </pre>
+
+      <div style={{ marginTop: 18, display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <button className="btn primary" onClick={() => onSave("docx")} disabled={!!busy}>
+          {busy === "letter-docx" && <span className="spinner" />}
+          Download .docx
+        </button>
+        <button className="btn ghost" onClick={() => onSave("pdf")} disabled={!!busy}>
+          {busy === "letter-pdf" && <span className="spinner" />}
+          Download .pdf
+        </button>
+        <button
+          className="btn ghost"
+          onClick={() => navigator.clipboard?.writeText(app.cover_letter)}
+        >
+          Copy text
+        </button>
+        <button className="btn ghost" onClick={write} disabled={!!busy}>
+          {busy === "letter" && <span className="spinner" />}
+          Rewrite
+        </button>
+      </div>
+    </>
   );
 }

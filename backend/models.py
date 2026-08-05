@@ -116,6 +116,7 @@ class Application(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     jd_text: Mapped[str] = mapped_column(Text, default="")
     resume_text: Mapped[str] = mapped_column(Text, default="")
+    cover_letter: Mapped[str] = mapped_column(Text, default="")
     match_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     engine: Mapped[str] = mapped_column(String(40), default="")
     # When the user actually applied — drives the "silent for N days" colouring.
