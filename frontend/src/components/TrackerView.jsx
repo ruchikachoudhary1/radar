@@ -13,6 +13,7 @@ import {
 } from "../api.js";
 import AddJobForm from "./AddJobForm.jsx";
 import ApplicationCard from "./ApplicationCard.jsx";
+import Skeleton from "./Skeleton.jsx";
 
 const ALL = "All";
 
@@ -211,7 +212,7 @@ export default function TrackerView() {
       </div>
 
       {loading ? (
-        <div className="empty">Loading…</div>
+        <Skeleton rows={3} label="Loading your applications" />
       ) : shown.length === 0 ? (
         <div className="empty">
           {items.length === 0

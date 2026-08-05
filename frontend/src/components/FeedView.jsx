@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { checkBoard, createApplication, getFeed, getPreferences, savePreferences } from "../api.js";
+import Skeleton from "./Skeleton.jsx";
 
 const SOURCE_HELP = {
   greenhouse: "From the careers URL boards.greenhouse.io/COMPANY — use the COMPANY part.",
@@ -77,7 +78,7 @@ export default function FeedView({ onTracked }) {
     }
   }
 
-  if (loading) return <div className="empty">Checking the boards…</div>;
+  if (loading) return <Skeleton rows={4} label="Checking the job boards" />;
 
   const jobs = feed?.jobs || [];
 

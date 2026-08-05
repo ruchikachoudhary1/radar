@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getSummary } from "../api.js";
+import Skeleton from "./Skeleton.jsx";
 
 const STAGES = ["Saved", "Applied", "Interviewing", "Offer", "Rejected"];
 
@@ -23,7 +24,7 @@ export default function DashboardView({ onNavigate, userName }) {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="empty">Loading…</div>;
+  if (loading) return <Skeleton rows={3} label="Loading your dashboard" />;
   if (error) return <div className="banner error">{error}</div>;
 
   const t = data.totals;
