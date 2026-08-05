@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getProfile, saveProfile } from "../api.js";
+import { deleteAccount, getProfile, saveProfile, setToken } from "../api.js";
 
 const CONTACT = [
   ["name", "Full name", "Aditya Sharma"],
@@ -25,7 +25,7 @@ const BLOCKS = [
  * once — normally auto-populated from an analysed resume — and edited by hand
  * whenever a detail changes.
  */
-export default function ProfileView() {
+export default function ProfileView({ onAccountDeleted }) {
   const [profile, setProfile] = useState(null);
   const [skillText, setSkillText] = useState("");
   const [status, setStatus] = useState("");
@@ -156,6 +156,97 @@ export default function ProfileView() {
           {saving ? "Saving…" : "Save profile"}
         </button>
       </div>
+
+      <DangerZone onDeleted={onAccountDeleted} />
+    </div>
+  );
+}
+
+/**
+ * Account deletion.
+ *
+ * Deliberately awkward: it takes a second click and typing the word, because
+ * this removes every resume, score and tracked application the account has,
+ * and there is no undo.
+ */
+function DangerZone({ onDeleted }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function remove() {
+    setBusy(true);
+    setError("");
+    try {
+      await deleteAccount();
+      setToken("");
+      onDeleted?.();
+    } catch (e) {
+      setError(e.message || "Couldn't delete the account.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card pad-lg" style={{ marginTop: 28, borderColor: "rgba(224,86,86,0.3)" }}>
+      <div className="section-title" style={{ color: "var(--critical)" }}>
+        Delete account
+      </div>
+      <div className="muted">
+        Removes your profile, every scored resume and every tracked application. This cannot be
+        undone.
+      </div>
+
+      {error && (
+        <div className="banner error" style={{ marginTop: 14, marginBottom: 0 }}>
+          {error}
+        </div>
+      )}
+
+      {!open ? (
+        <button
+          className="btn ghost"
+          style={{ marginTop: 16, color: "var(--critical)" }}
+          onClick={() => setOpen(true)}
+        >
+          Delete my account
+        </button>
+      ) : (
+        <div style={{ marginTop: 16 }}>
+          <label className="field" style={{ maxWidth: 320, marginBottom: 12 }}>
+            <span className="field-label">Type DELETE to confirm</span>
+            <input
+              type="text"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="DELETE"
+            />
+          </label>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button
+              className="btn primary"
+              style={{ background: "var(--critical)", color: "#fff" }}
+              disabled={typed !== "DELETE" || busy}
+              onClick={remove}
+            >
+              {busy && <span className="spinner" />}
+              {busy ? "Deleting…" : "Permanently delete"}
+            </button>
+            <button
+              className="btn ghost"
+              onClick={() => {
+                setOpen(false);
+                setTyped("");
+                setError("");
+              }}
+              disabled={busy}
+            >
+              Keep my account
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

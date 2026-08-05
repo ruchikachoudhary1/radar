@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -124,6 +125,54 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
 
 def find_by_email(db: Session, email: str) -> User | None:
     return db.scalar(select(User).where(User.email == email.strip().lower()))
+
+
+# --------------------------------------------------------------------------
+# Login throttling
+# --------------------------------------------------------------------------
+# Without this, an attacker can try passwords against a known email as fast as
+# the network allows. bcrypt already makes each guess slow, but slow is not the
+# same as limited.
+#
+# The counter is a plain dict, which is honest about its limits: it is per
+# process, so a second instance would not share it, and it resets on restart.
+# For a single free-tier container that is the right amount of machinery. Redis
+# is the answer once there is more than one process, not before.
+MAX_ATTEMPTS = 8
+LOCKOUT_SECONDS = 900  # 15 minutes
+
+_attempts: dict[str, list[float]] = {}
+
+
+def _recent(key: str, now: float) -> list[float]:
+    kept = [t for t in _attempts.get(key, []) if now - t < LOCKOUT_SECONDS]
+    if kept:
+        _attempts[key] = kept
+    else:
+        _attempts.pop(key, None)
+    return kept
+
+
+def check_not_locked_out(key: str) -> None:
+    """Raise 429 if this identifier has failed too many times recently."""
+    now = time.monotonic()
+    if len(_recent(key, now)) >= MAX_ATTEMPTS:
+        wait = int((LOCKOUT_SECONDS - (now - min(_recent(key, now)))) / 60) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed sign-in attempts. Try again in about {wait} minutes.",
+        )
+
+
+def record_failure(key: str) -> None:
+    now = time.monotonic()
+    _attempts.setdefault(key, []).append(now)
+    _recent(key, now)
+
+
+def clear_failures(key: str) -> None:
+    """A correct password wipes the slate, so a typo costs nothing later."""
+    _attempts.pop(key, None)
 
 
 def public_user(user: User) -> dict:

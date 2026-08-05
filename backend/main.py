@@ -161,17 +161,43 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)) -> dict:
 
 @app.post("/api/auth/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)) -> dict:
-    user = auth.find_by_email(db, req.email)
+    # Throttle per email rather than per IP: an attacker can rotate addresses
+    # far more easily than they can guess which account they want.
+    key = (req.email or "").strip().lower()
+    auth.check_not_locked_out(key)
+
+    user = auth.find_by_email(db, key)
     # One message for both branches: saying which half was wrong tells an
     # attacker whether an email is registered.
     if not user or not auth.verify_password(req.password or "", user.password_hash):
+        auth.record_failure(key)
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
+
+    auth.clear_failures(key)
     return {"token": auth.create_token(user.id), "user": auth.public_user(user)}
 
 
 @app.get("/api/auth/me")
 def me(user: User = Depends(current_user)) -> dict:
     return {"user": auth.public_user(user)}
+
+
+@app.delete("/api/auth/me")
+def delete_account(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict:
+    """
+    Delete the account and everything in it.
+
+    The cascades are declared on the User relationships, so removing the row
+    takes the profile, analyses and applications with it rather than leaving
+    orphaned resumes behind.
+    """
+    email = user.email
+    db.delete(user)
+    db.commit()
+    auth.clear_failures(email)
+    return {"deleted": True}
 
 
 @app.post("/api/analyze")

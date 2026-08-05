@@ -345,3 +345,89 @@ def test_summary_is_scoped_to_the_signed_in_user(client):
 
 def test_summary_requires_a_token(client):
     assert client.get("/api/summary").status_code == 401
+
+
+# --------------------------------------------------------------------------
+# Login throttling
+# --------------------------------------------------------------------------
+def test_repeated_failures_lock_the_account_out(client):
+    register(client, "brute@example.com", "the-real-password")
+    auth._attempts.pop("brute@example.com", None)
+
+    for _ in range(auth.MAX_ATTEMPTS):
+        res = client.post("/api/auth/login",
+                          json={"email": "brute@example.com", "password": "wrong"})
+        assert res.status_code == 401
+
+    locked = client.post("/api/auth/login",
+                         json={"email": "brute@example.com", "password": "wrong"})
+    assert locked.status_code == 429
+
+    # Even the correct password is refused while locked out.
+    assert client.post("/api/auth/login",
+                       json={"email": "brute@example.com",
+                             "password": "the-real-password"}).status_code == 429
+    auth._attempts.pop("brute@example.com", None)
+
+
+def test_a_successful_login_clears_earlier_failures(client):
+    register(client, "typo@example.com", "the-real-password")
+    auth._attempts.pop("typo@example.com", None)
+
+    for _ in range(auth.MAX_ATTEMPTS - 1):
+        client.post("/api/auth/login", json={"email": "typo@example.com", "password": "oops"})
+
+    assert client.post("/api/auth/login",
+                       json={"email": "typo@example.com",
+                             "password": "the-real-password"}).status_code == 200
+    # The slate is clean, so a later typo does not immediately lock them out.
+    assert client.post("/api/auth/login",
+                       json={"email": "typo@example.com", "password": "oops"}).status_code == 401
+    auth._attempts.pop("typo@example.com", None)
+
+
+def test_lockout_is_per_email_not_global(client):
+    register(client, "victim@example.com", "pw-victim-123")
+    register(client, "bystander@example.com", "pw-bystander-123")
+    auth._attempts.clear()
+
+    for _ in range(auth.MAX_ATTEMPTS):
+        client.post("/api/auth/login", json={"email": "victim@example.com", "password": "x"})
+
+    assert client.post("/api/auth/login",
+                       json={"email": "bystander@example.com",
+                             "password": "pw-bystander-123"}).status_code == 200
+    auth._attempts.clear()
+
+
+# --------------------------------------------------------------------------
+# Account deletion
+# --------------------------------------------------------------------------
+def test_deleting_an_account_removes_its_data_and_frees_the_email(client):
+    token = register(client, "goodbye@example.com").json()["token"]
+    client.put("/api/profile", json={"profile": {"name": "Gone", "skills": ["Python"]}},
+               headers=bearer(token))
+    _new_app(client, token)
+
+    assert client.delete("/api/auth/me", headers=bearer(token)).status_code == 200
+
+    # The token no longer resolves to anyone.
+    assert client.get("/api/auth/me", headers=bearer(token)).status_code == 401
+    # And the address can be reused, which proves the row really went.
+    fresh = register(client, "goodbye@example.com")
+    assert fresh.status_code == 200
+    assert client.get("/api/applications",
+                      headers=bearer(fresh.json()["token"])).json()["items"] == []
+
+
+def test_deleting_one_account_leaves_another_alone(client):
+    a = register(client, "stays@example.com").json()["token"]
+    b = register(client, "leaves@example.com").json()["token"]
+    _new_app(client, a)
+
+    client.delete("/api/auth/me", headers=bearer(b))
+    assert len(client.get("/api/applications", headers=bearer(a)).json()["items"]) == 1
+
+
+def test_deleting_requires_a_token(client):
+    assert client.delete("/api/auth/me").status_code == 401

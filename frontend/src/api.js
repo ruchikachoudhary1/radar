@@ -90,6 +90,12 @@ export async function getMe() {
   return handle(await fetch(`${BASE}/api/auth/me`, { headers: authHeaders() }));
 }
 
+export async function deleteAccount() {
+  return handle(
+    await fetch(`${BASE}/api/auth/me`, { method: "DELETE", headers: authHeaders() })
+  );
+}
+
 export async function analyzeResume({ file, role, jobDescription }) {
   const form = new FormData();
   form.append("file", file);

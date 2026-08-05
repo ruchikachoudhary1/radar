@@ -157,7 +157,7 @@ export default function App() {
         )}
         {view === "analyze" && <AnalyzeView roles={roles} />}
         {view === "tracker" && <TrackerView />}
-        {view === "profile" && <ProfileView />}
+        {view === "profile" && <ProfileView onAccountDeleted={signOut} />}
         {view === "rewrite" && <RewriteView gemini={health?.gemini_configured} />}
         {view === "history" && <HistoryView />}
         {view === "method" && <MethodView />}
