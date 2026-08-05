@@ -7,7 +7,7 @@ ones. It is built as a real product service: a typed REST API, an NLP matching
 layer, a persistence layer, an optional LLM integration with a graceful offline
 fallback, a test suite, and containerised deployment.
 
-> **Live demo:** _add your deployed URL here after following DEPLOY.md_
+> **Live demo:** https://radar-six-iota.vercel.app
 
 ---
 
@@ -24,11 +24,20 @@ engineering breadth end-to-end:
 - **An LLM feature done responsibly.** Bullet rewriting uses Google Gemini when a
   key is present and falls back to a deterministic rule-based rewriter when it is
   not — the app is fully functional offline.
+- **Real accounts.** bcrypt password hashing, stateless JWT sessions, and
+  per-user data isolation enforced in the data layer rather than in the route
+  handlers — so a forgotten check in one endpoint cannot leak another account's
+  resumes.
+- **Storage that survives.** Free hosting gives a container an ephemeral
+  filesystem, so a SQLite file there is wiped on every deploy and restart. The
+  models sit on SQLAlchemy and one environment variable chooses the backend:
+  SQLite locally, PostgreSQL in production, same code and same tests on both.
 - **Production shape.** Typed FastAPI backend with auto-generated OpenAPI docs,
-  SQLite persistence, CORS, Dockerfiles for both services, an nginx reverse proxy,
-  a Docker Compose stack, and one-click cloud deploy configs.
-- **Tested.** A unit-test suite covers the scoring engine, parser, matcher and
-  rewriter.
+  origin-restricted CORS, login throttling, Dockerfiles for both services, an
+  nginx reverse proxy, a Docker Compose stack, and one-click cloud deploy
+  configs.
+- **Tested.** 167 tests covering the scoring engine, parser, matcher, rewriter,
+  follow-up rules, cover letters, the job feed, and account isolation.
 
 ## Features
 
@@ -67,7 +76,34 @@ engineering breadth end-to-end:
   re-ranked against the posting's keywords, with its keyword-match score shown.
 - Applications move through a status pipeline (Saved → Applied → Interviewing →
   Offer / Rejected) and filter by type, work mode and stage.
-- Export any generated resume to **.docx, .pdf or .txt**.
+- Each application carries a **deadline** and a **follow-up verdict**: calm for
+  the first week, a warning after seven days of silence, urgent after fourteen or
+  once the closing date passes. The rule lives in one tested module, so the
+  dashboard and the pipeline cannot disagree about what needs chasing.
+- A **cover letter** per application, written from the same profile and posting
+  as the resume. Where a number would help and the profile has none, it leaves a
+  marked `[add detail]` placeholder and tells you how many are left, rather than
+  inventing one.
+- Export any generated resume or letter to **.docx, .pdf or .txt**.
+
+### Job feed
+
+- Add the companies you care about by their job-board name. RADAR reads their
+  open roles straight from **Greenhouse** and **Lever**, which publish every
+  listing on a company's careers page as unauthenticated JSON.
+- This is deliberately not scraping LinkedIn or Naukri: they block automated
+  requests and forbid it in their terms. The ATS endpoints are a supported route
+  and more reliable.
+- Filter by role keywords, location, internship-only and remote-only. Track any
+  posting into the pipeline in one click.
+- Refreshed when you open the page, and a scheduled workflow wakes the free
+  backend each weekday morning so the first visit of the day is not a cold start.
+
+### Accounts
+
+- Sign up, sign in, and everything you create stays private to your account.
+- Delete your account and every resume, score and tracked application goes with
+  it — the cascade is declared on the model, not swept up by a script.
 
 ## Architecture
 
@@ -81,15 +117,18 @@ engineering breadth end-to-end:
 ```
 
 - **`frontend/`** — React 18 + Vite. Hand-built SVG gauges (no chart library),
-  a custom warm-editorial design system, six views (Analyze, Applications,
-  Profile, Rewrite, History, Method).
+  a custom warm-editorial design system, eight views (Dashboard, Analyze, Job
+  feed, Applications, Profile, Rewrite, History, Method).
 - **`backend/`** — FastAPI. Modules: `parsing.py` (PDF/DOCX extraction),
   `scoring.py` (the rubric engine), `matching.py` (TF-IDF JD matching),
   `ai.py` (Gemini + fallback), `interview.py` (gap detection and rebuild),
   `profiles.py` (resume → structured profile), `jobs.py` (posting fetch and
   field extraction), `tailor.py` (per-job resume generation),
-  `documents.py` (.docx/.pdf output), `database.py` (SQLite),
-  `roles.py` (curated knowledge base), `main.py` (API).
+  `coverletter.py` (per-job letters), `urgency.py` (follow-up rules),
+  `jobfeed.py` (Greenhouse/Lever adapters), `documents.py` (.docx/.pdf output),
+  `models.py` + `db.py` + `database.py` (schema, connection, data access),
+  `auth.py` (bcrypt, JWT, throttling), `roles.py` (curated knowledge base),
+  `main.py` (API).
 
 ### One design rule, applied everywhere
 
@@ -107,9 +146,11 @@ why every output can be explained rather than shrugged at.
 | NLP / ML  | scikit-learn (TF-IDF + cosine similarity) |
 | AI        | Google Gemini (`google-generativeai`) with offline fallback |
 | Parsing   | pdfplumber, python-docx |
-| Storage   | SQLite |
-| DevOps    | Docker, Docker Compose, nginx, Render / Vercel configs |
-| Testing   | pytest-style unit tests |
+| Storage   | SQLAlchemy ORM — PostgreSQL (Neon) in production, SQLite locally |
+| Accounts  | bcrypt password hashing, PyJWT stateless sessions |
+| Job feed  | Greenhouse and Lever public JSON board APIs |
+| DevOps    | Docker, Docker Compose, nginx, Render / Vercel, GitHub Actions |
+| Testing   | pytest — 167 tests |
 
 ## Run it locally
 
@@ -149,13 +190,22 @@ Copy `backend/.env.example` to `backend/.env`:
 | `GEMINI_API_KEY` | Free key from https://aistudio.google.com/app/apikey. Omit to use the offline rewriter. |
 | `GEMINI_MODEL`   | Defaults to `gemini-1.5-flash` (free-tier friendly). |
 | `PORT`           | Backend port (default 8000). |
+| `DATABASE_URL`   | PostgreSQL URL. Leave blank locally to use `backend/data/radar.db`. **Required in production** — a free container's filesystem is wiped on restart. |
+| `JWT_SECRET`     | Signs session tokens. Generate with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. |
+| `RADAR_ENV`      | Set to `production` to make a missing `JWT_SECRET` a startup error rather than a silent fallback. |
+| `ALLOWED_ORIGINS`| Comma-separated frontend origins allowed to call the API. Blank allows any, which is fine locally and too permissive once deployed. |
 
 ## Tests
 
 ```bash
 cd backend
-pytest                 # or: python tests/test_scoring.py
+pytest
 ```
+
+The tests worth reading first are `tests/test_auth.py`, which creates two
+accounts and asserts the second cannot read, modify or delete the first's
+applications, and `tests/test_urgency.py`, which pins the follow-up boundaries —
+day six is calm, day seven is not.
 
 ## Deployment
 
