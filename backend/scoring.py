@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 
+from matching import mentions
 from parsing import split_bullets
 from roles import (
     EXPECTED_SECTIONS,
@@ -96,8 +97,11 @@ def score_role_match(text: str, role: str, jd_keywords: list[str] | None) -> dic
             "suggestions": ["Select a target role or paste a job description to score keyword fit."],
         }
 
-    matched = [kw for kw in bank if kw in low]
-    missing = [kw for kw in bank if kw not in low]
+    # Whole-term matching, not substring. "go" appears inside "algorithms" and
+    # "ai" inside "maintained", so a plain `kw in low` handed points to resumes
+    # that never mentioned the skill — and this dimension is 25 of the 100.
+    matched = [kw for kw in bank if mentions(kw, low)]
+    missing = [kw for kw in bank if not mentions(kw, low)]
     ratio = len(matched) / len(bank)
     points = round(ratio * WEIGHTS["role_match"])
     suggestions = []

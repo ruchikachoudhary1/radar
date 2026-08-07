@@ -28,6 +28,32 @@ STOPWORDS = {
 
 TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.#/-]{1,}")
 
+# Characters that count as "part of a keyword". A keyword only counts as
+# mentioned when it is not touching one of these on either side.
+#
+# This exists because a plain substring test silently inflates every score:
+# "go" appears inside "algorithms", "ai" inside "maintained", "api" inside
+# "rapid". A plain \b does not work either, because entries like "c++",
+# "node.js" and "ci/cd" end in punctuation, and \b after "+" asserts the
+# opposite of what is wanted. Expressing the boundary as "not adjacent to
+# another keyword character" handles both cases.
+_KEYWORD_CHARS = r"a-z0-9+#./\-"
+_MENTION_CACHE: dict[str, re.Pattern] = {}
+
+
+def mentions(keyword: str, low_text: str) -> bool:
+    """Is `keyword` present in already-lowercased `low_text` as a whole term?"""
+    keyword = keyword.strip().lower()
+    if not keyword:
+        return False
+    pattern = _MENTION_CACHE.get(keyword)
+    if pattern is None:
+        pattern = re.compile(
+            rf"(?<![{_KEYWORD_CHARS}]){re.escape(keyword)}(?![{_KEYWORD_CHARS}])"
+        )
+        _MENTION_CACHE[keyword] = pattern
+    return pattern.search(low_text) is not None
+
 
 def _tokens(text: str) -> list[str]:
     out = []
@@ -67,8 +93,8 @@ def similarity(resume_text: str, jd_text: str) -> dict:
 
     keys = jd_keywords(jd_text)
     low_resume = resume_text.lower()
-    matched = [k for k in keys if k in low_resume]
-    missing = [k for k in keys if k not in low_resume]
+    matched = [k for k in keys if mentions(k, low_resume)]
+    missing = [k for k in keys if not mentions(k, low_resume)]
     coverage = round(100 * len(matched) / len(keys)) if keys else None
 
     return {

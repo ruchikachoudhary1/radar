@@ -7,6 +7,8 @@ Or standalone:        python tests/test_scoring.py
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import ai
@@ -122,3 +124,65 @@ def _run_standalone():
 
 if __name__ == "__main__":
     sys.exit(0 if _run_standalone() else 1)
+
+
+# --------------------------------------------------------------------------
+# Keyword matching must be whole-term, not substring
+#
+# The original `kw in text` handed points to resumes that never mentioned the
+# skill: "go" sits inside "algorithms", "ai" inside "maintained", "api" inside
+# "rapid". Role match is 25 of the 100 points, so this inflated every score.
+# --------------------------------------------------------------------------
+from matching import mentions  # noqa: E402
+
+
+@pytest.mark.parametrize("keyword,text", [
+    ("go", "improved algorithms and logistics"),
+    ("ai", "maintained and explained the process"),
+    ("api", "rapid prototyping"),
+    ("sql", "PostgreSQL experience"),
+    ("r", "customer support"),
+    ("go", "go-to-market strategy"),
+])
+def test_a_keyword_hidden_inside_another_word_does_not_count(keyword, text):
+    assert not mentions(keyword, text.lower())
+
+
+@pytest.mark.parametrize("keyword,text", [
+    ("go", "built services in Go and Python"),
+    ("ai", "AI and machine learning"),
+    ("api", "designed a REST API"),
+    ("sql", "wrote SQL queries"),
+    ("react", "React and Redux"),
+])
+def test_a_keyword_used_as_a_word_does_count(keyword, text):
+    assert mentions(keyword, text.lower())
+
+
+@pytest.mark.parametrize("keyword,text", [
+    ("c++", "wrote C++ and Python"),
+    ("c#", "C# and .NET"),
+    ("node.js", "Node.js and Express"),
+    ("ci/cd", "CI/CD pipelines"),
+    ("scikit-learn", "used scikit-learn for the model"),
+    ("a/b testing", "ran A/B testing on the funnel"),
+])
+def test_keywords_ending_in_punctuation_still_match(keyword, text):
+    """A plain \b breaks on these — \b after '+' asserts the opposite."""
+    assert mentions(keyword, text.lower())
+
+
+def test_an_unrelated_resume_scores_near_zero_on_role_match():
+    """The regression this guards: a support CV scoring as a backend engineer."""
+    resume = (
+        "Customer support associate. Managed algorithms for scheduling. "
+        "Excellent communication skills. Coordinated logistics and reporting. "
+    ) * 4
+    result = scoring.score_role_match(resume, "Backend Developer", None)
+    assert result["points"] <= 2
+    assert "go" not in result["matched"]
+
+
+def test_matching_is_case_insensitive():
+    assert mentions("python", "PYTHON and Django".lower())
+    assert mentions("fastapi", "Built with FastAPI".lower())
