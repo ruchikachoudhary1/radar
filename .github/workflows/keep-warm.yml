@@ -25,9 +25,12 @@ jobs:
         run: |
           URL="${{ vars.RADAR_API_URL }}"
           if [ -z "$URL" ]; then
-            echo "Set a repository variable RADAR_API_URL to your Render URL."
-            echo "Settings > Secrets and variables > Actions > Variables."
-            exit 1
+            # Skip rather than fail. This job is a convenience — it saves the
+            # first visitor a cold start — so an unset variable should not put
+            # a red cross on the repository every weekday morning.
+            echo "::notice::RADAR_API_URL is not set, so there is nothing to wake."
+            echo "Set it under Settings > Secrets and variables > Actions > Variables."
+            exit 0
           fi
 
           # A cold start can take most of a minute, so allow for it and retry
