@@ -159,6 +159,32 @@ def _any_match(text: str, needles: list[str]) -> bool:
     return any(n.strip().lower() in low for n in needles if n.strip())
 
 
+def match_reasons(job: dict, prefs: dict) -> list[str]:
+    """
+    Why this posting is in the feed.
+
+    Shown on the card so the feed can be argued with. A user who can see *why*
+    something matched can fix their filters; one who just sees a list has to
+    guess what the app is thinking.
+    """
+    reasons = []
+    title = (job.get("title") or "").lower()
+    for role in prefs.get("roles") or []:
+        if role.strip() and role.strip().lower() in title:
+            reasons.append(role.strip())
+
+    if job.get("internship"):
+        reasons.append("Internship")
+    if job.get("remote"):
+        reasons.append("Remote")
+    else:
+        for place in prefs.get("locations") or []:
+            if place.strip() and place.strip().lower() in (job.get("location") or "").lower():
+                reasons.append(place.strip())
+                break
+    return reasons
+
+
 def matches(job: dict, prefs: dict) -> bool:
     """
     Does this posting fit what the user said they want?
@@ -209,6 +235,7 @@ def collect(companies: list[dict], prefs: dict | None = None) -> dict:
                 if matches(job, prefs):
                     if entry.get("label"):
                         job["company"] = entry["label"]
+                    job["reasons"] = match_reasons(job, prefs)
                     jobs.append(job)
         except FeedError as exc:
             problems.append({"source": source, "token": token, "error": str(exc)})

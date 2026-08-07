@@ -183,6 +183,69 @@ textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
 .chip.on { border-color: rgba(53,196,107,0.4); color: var(--good); background: rgba(53,196,107,0.08); }
 .chip.off { border-color: rgba(224,86,86,0.35); color: var(--critical); background: rgba(224,86,86,0.07); }
 
+/* ---------- Pipeline board ----------
+   Columns scroll sideways as a group rather than squeezing to nothing, so a
+   five-stage pipeline stays readable on a laptop. */
+.board { display: flex; gap: 14px; margin-top: 20px; overflow-x: auto; padding-bottom: 8px; align-items: flex-start; }
+.board-col {
+  flex: 0 0 268px; background: var(--surface-1); border: 1px solid var(--border-soft);
+  border-radius: var(--radius); padding: 12px; transition: background 0.15s, border-color 0.15s;
+}
+.board-col.over { border-color: var(--accent); background: var(--surface-2); }
+.board-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink-3); padding: 2px 4px 12px;
+}
+.board-count { background: var(--surface-3); border-radius: 999px; padding: 1px 8px; letter-spacing: 0; }
+.board-body { display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+.board-empty { color: var(--ink-3); font-size: 12.5px; padding: 14px 4px; text-align: center; }
+.board-card {
+  background: var(--surface-2); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); padding: 12px 13px; cursor: grab;
+}
+.board-card:active { cursor: grabbing; }
+.board-card.lifting { opacity: 0.45; }
+.board-title { font-weight: 600; font-size: 13.5px; line-height: 1.35; }
+.board-actions { display: flex; gap: 10px; align-items: center; margin-top: 11px; flex-wrap: wrap; }
+.board-actions select { width: auto; padding: 5px 8px; font-size: 12px; }
+.board-actions .link-btn { font-size: 12px; }
+
+/* A five-column board is unusable on a phone; TrackerView forces the list view
+   below this width rather than hiding the board and leaving an empty page. */
+
+/* ---------- Toasts ---------- */
+.toast-stack {
+  position: fixed; bottom: 20px; right: 20px; z-index: 60;
+  display: flex; flex-direction: column; gap: 10px;
+  max-width: min(380px, calc(100vw - 40px));
+}
+.toast {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 13px 15px; border-radius: var(--radius-sm);
+  background: var(--surface-3); border: 1px solid var(--border);
+  color: var(--ink); font-size: 13.5px; line-height: 1.5;
+  box-shadow: var(--shadow);
+  animation: toast-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.toast-good  { border-color: rgba(53,196,107,0.4);  background: rgba(53,196,107,0.12); color: #9fe6ba; }
+.toast-error { border-color: rgba(224,86,86,0.4);   background: rgba(224,86,86,0.12);  color: #f0a5a5; }
+.toast-info  { border-color: rgba(232,184,75,0.32); background: var(--accent-dim);     color: var(--accent-2); }
+.toast-x {
+  background: none; border: none; color: inherit; opacity: 0.6;
+  cursor: pointer; font-size: 12px; padding: 0; margin-left: auto; line-height: 1.4;
+}
+.toast-x:hover { opacity: 1; }
+
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } }
+
+@media (max-width: 620px) {
+  .toast-stack { left: 16px; right: 16px; bottom: 16px; max-width: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
 /* Visible to screen readers, not to the eye — used for live status messages
    that the visual design conveys some other way. */
 .sr-only {

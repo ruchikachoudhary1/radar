@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { checkBoard, createApplication, getFeed, getPreferences, savePreferences } from "../api.js";
 import Skeleton from "./Skeleton.jsx";
+import { useToast } from "./Toast.jsx";
 
 const SOURCE_HELP = {
   greenhouse: "From the careers URL boards.greenhouse.io/COMPANY — use the COMPANY part.",
@@ -24,6 +25,7 @@ export default function FeedView({ onTracked }) {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(null);
+  const toast = useToast();
 
   useEffect(() => {
     load();
@@ -70,9 +72,10 @@ export default function FeedView({ onTracked }) {
         ...f,
         jobs: f.jobs.map((j) => (j.url === job.url ? { ...j, tracked: true } : j)),
       }));
+      toast(`${job.title} saved to your tracker.`, "good");
       onTracked?.();
     } catch (e) {
-      setError(e.message || "Couldn't add that to your tracker.");
+      toast(e.message || "Couldn't add that to your tracker.", "error");
     } finally {
       setAdding(null);
     }
@@ -152,12 +155,15 @@ export default function FeedView({ onTracked }) {
                 flexWrap: "wrap",
               }}
             >
-              <div style={{ minWidth: 0, flex: "1 1 280px" }}>
-                <div style={{ fontSize: 15.5, fontWeight: 600 }}>{job.title}</div>
-                <div className="muted" style={{ marginTop: 2 }}>
-                  {job.company}
-                  {job.location ? ` · ${job.location}` : ""}
-                  {job.posted_at ? ` · posted ${job.posted_at}` : ""}
+              <div style={{ display: "flex", gap: 12, minWidth: 0, flex: "1 1 280px" }}>
+                <Monogram name={job.company} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 15.5, fontWeight: 600 }}>{job.title}</div>
+                  <div className="muted" style={{ marginTop: 2 }}>
+                    {job.company}
+                    {job.location ? ` · ${job.location}` : ""}
+                    {job.posted_at ? ` · posted ${job.posted_at}` : ""}
+                  </div>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -165,6 +171,19 @@ export default function FeedView({ onTracked }) {
                 {job.remote && <span className="chip">Remote</span>}
               </div>
             </div>
+
+            {(job.reasons || []).length > 0 && (
+              <div className="chips" style={{ marginTop: 12 }}>
+                <span className="muted" style={{ fontSize: 12.5, alignSelf: "center" }}>
+                  Matched
+                </span>
+                {job.reasons.map((r) => (
+                  <span className="chip on" key={r}>
+                    {r}
+                  </span>
+                ))}
+              </div>
+            )}
 
             <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
               <a
@@ -363,6 +382,50 @@ function PreferencesPanel({ prefs, open, onToggle, onSave }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A company's initials in a colour derived from its name.
+ *
+ * Deliberately not a real logo: fetching favicons would mean a request to a
+ * third party for every card, which leaks the user's job search to whoever
+ * serves them and breaks whenever a company has no icon. Initials always
+ * render, cost nothing, and are enough to tell two cards apart at a glance.
+ */
+function Monogram({ name }) {
+  const label = (name || "?").trim();
+  const initials = label
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+
+  // Hash the name to a hue so a company keeps the same colour between visits.
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) % 360;
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        flex: "none",
+        width: 38,
+        height: 38,
+        borderRadius: 10,
+        display: "grid",
+        placeItems: "center",
+        fontSize: 13,
+        fontWeight: 600,
+        letterSpacing: "0.02em",
+        color: `hsl(${hash} 70% 78%)`,
+        background: `hsl(${hash} 45% 18%)`,
+        border: `1px solid hsl(${hash} 45% 28%)`,
+      }}
+    >
+      {initials}
     </div>
   );
 }

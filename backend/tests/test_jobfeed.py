@@ -246,3 +246,40 @@ def test_a_saved_label_overrides_the_board_name(stub):
         [{"source": "greenhouse", "token": "acme", "label": "Acme Labs India"}]
     )
     assert result["jobs"][0]["company"] == "Acme Labs India"
+
+
+# --------------------------------------------------------------------------
+# Why a posting matched — shown on the card so the feed can be argued with
+# --------------------------------------------------------------------------
+def test_reasons_name_the_role_keyword_that_matched():
+    reasons = jobfeed.match_reasons(JOB, {"roles": ["backend", "designer"]})
+    assert "backend" in reasons
+    assert "designer" not in reasons
+
+
+def test_reasons_include_internship_and_location():
+    reasons = jobfeed.match_reasons(JOB, {"roles": [], "locations": ["Bengaluru"]})
+    assert "Internship" in reasons
+    assert "Bengaluru" in reasons
+
+
+def test_a_remote_role_says_remote_rather_than_a_city():
+    """Remote makes the location filter irrelevant, so quoting a city would mislead."""
+    remote = {**JOB, "remote": True, "location": "Remote"}
+    reasons = jobfeed.match_reasons(remote, {"locations": ["Delhi"]})
+    assert "Remote" in reasons
+    assert "Delhi" not in reasons
+
+
+def test_no_preferences_still_reports_what_the_posting_is():
+    assert jobfeed.match_reasons(JOB, {}) == ["Internship"]
+
+
+def test_collect_attaches_reasons_to_every_job(stub):
+    stub["greenhouse"] = GREENHOUSE_PAYLOAD
+    result = jobfeed.collect(
+        [{"source": "greenhouse", "token": "acme"}], {"roles": ["engineering"]}
+    )
+    assert result["jobs"]
+    assert all("reasons" in j for j in result["jobs"])
+    assert "engineering" in result["jobs"][0]["reasons"]

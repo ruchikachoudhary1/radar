@@ -14,8 +14,29 @@ import {
 import AddJobForm from "./AddJobForm.jsx";
 import ApplicationCard from "./ApplicationCard.jsx";
 import Skeleton from "./Skeleton.jsx";
+import PipelineBoard from "./PipelineBoard.jsx";
+import { useToast } from "./Toast.jsx";
 
 const ALL = "All";
+const BOARD_MIN_WIDTH = 760;
+
+/** True when the viewport is too narrow for a five-column board. */
+function useNarrowScreen(breakpoint = BOARD_MIN_WIDTH) {
+  const query = `(max-width: ${breakpoint}px)`;
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(query).matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const update = (e) => setNarrow(e.matches);
+    mq.addEventListener("change", update);
+    setNarrow(mq.matches);
+    return () => mq.removeEventListener("change", update);
+  }, [query]);
+
+  return narrow;
+}
 
 /**
  * The application tracker.
@@ -33,6 +54,11 @@ export default function TrackerView() {
   const [open, setOpen] = useState(null);
   const [filters, setFilters] = useState({ status: ALL, job_type: ALL, work_mode: ALL });
   const [onlyFollowUp, setOnlyFollowUp] = useState(false);
+  const [layout, setLayout] = useState("board");
+  const narrow = useNarrowScreen();
+  const toast = useToast();
+  // A five-column board does not fit a phone, so the list takes over there.
+  const showBoard = layout === "board" && !narrow;
 
   useEffect(() => {
     refresh();
@@ -69,8 +95,9 @@ export default function TrackerView() {
     try {
       const updated = await updateApplication(id, { status });
       setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...updated } : it)));
+      toast(`Moved to ${status}.`, "good");
     } catch (e) {
-      setError(e.message || "Couldn't update that application.");
+      toast(e.message || "Couldn't update that application.", "error");
     }
   }
 
@@ -80,8 +107,9 @@ export default function TrackerView() {
     try {
       const updated = await updateApplication(id, { replied: true });
       setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...updated } : it)));
+      toast("Marked as replied — it will stop nagging you.", "good");
     } catch (e) {
-      setError(e.message || "Couldn't update that application.");
+      toast(e.message || "Couldn't update that application.", "error");
     }
   }
 
@@ -91,8 +119,9 @@ export default function TrackerView() {
       await deleteApplication(id);
       setItems((prev) => prev.filter((it) => it.id !== id));
       if (open?.id === id) setOpen(null);
+      toast("Removed from your tracker.", "info");
     } catch (e) {
-      setError(e.message || "Couldn't delete that application.");
+      toast(e.message || "Couldn't delete that application.", "error");
     }
   }
 
@@ -113,9 +142,10 @@ export default function TrackerView() {
       setItems((prev) =>
         prev.map((it) => (it.id === id ? { ...it, ...res.application } : it))
       );
+      toast("Resume rebuilt from your profile.", "good");
       return res;
     } catch (e) {
-      setError(e.message || "Couldn't rebuild that resume.");
+      toast(e.message || "Couldn't rebuild that resume.", "error");
       return null;
     }
   }
@@ -129,9 +159,16 @@ export default function TrackerView() {
       const res = await writeCoverLetter(id);
       setOpen(res.application);
       setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...res.application } : it)));
+      const left = res.placeholders;
+      toast(
+        left > 0
+          ? `Cover letter written — ${left} ${left === 1 ? "spot needs" : "spots need"} filling in.`
+          : "Cover letter written.",
+        left > 0 ? "info" : "good"
+      );
       return res;
     } catch (e) {
-      setError(e.message || "Couldn't write that cover letter.");
+      toast(e.message || "Couldn't write that cover letter.", "error");
       return null;
     }
   }
@@ -196,6 +233,28 @@ export default function TrackerView() {
           {filterRow("job_type", "Type", facets.job_types)}
           {filterRow("work_mode", "Mode", facets.work_modes)}
 
+          {!narrow && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span className="muted" style={{ minWidth: 74 }}>View</span>
+              <div className="chips" style={{ marginTop: 0 }}>
+                <button
+                  className={`chip ${layout === "board" ? "on" : ""}`}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setLayout("board")}
+                >
+                  Board
+                </button>
+                <button
+                  className={`chip ${layout === "list" ? "on" : ""}`}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setLayout("list")}
+                >
+                  List
+                </button>
+              </div>
+            </div>
+          )}
+
           {followUpCount > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span className="muted" style={{ minWidth: 74 }}>Chase</span>
@@ -221,6 +280,14 @@ export default function TrackerView() {
             ? "Nothing needs chasing right now."
             : "No applications match these filters."}
         </div>
+      ) : showBoard ? (
+        <PipelineBoard
+          items={shown}
+          statuses={facets.statuses}
+          onMove={move}
+          onView={view}
+          onReplied={markReplied}
+        />
       ) : (
         <div style={{ marginTop: 20, display: "grid", gap: 14 }}>
           {shown.map((it) => (
