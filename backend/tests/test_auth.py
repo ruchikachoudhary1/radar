@@ -495,3 +495,48 @@ def test_feed_endpoints_require_a_token(client):
     assert client.get("/api/feed").status_code == 401
     assert client.get("/api/preferences").status_code == 401
     assert client.post("/api/feed/check", json={"token": "x"}).status_code == 401
+
+
+# --------------------------------------------------------------------------
+# Upload limits
+# --------------------------------------------------------------------------
+def test_an_oversized_upload_is_refused_rather_than_buffered(client):
+    """file.read() with no cap lets one upload exhaust a 512 MB container."""
+    token = register(client, "big@example.com").json()["token"]
+    payload = b"x" * (main.MAX_UPLOAD_BYTES + 1024)
+    res = client.post(
+        "/api/analyze",
+        files={"file": ("huge.txt", payload, "text/plain")},
+        data={"role": ""},
+        headers=bearer(token),
+    )
+    assert res.status_code == 413
+
+
+def test_a_normal_resume_still_uploads(client):
+    token = register(client, "normal@example.com").json()["token"]
+    resume = (
+        "Aditya Sharma\naditya@example.com\n+91 98765 43210\n"
+        "EXPERIENCE\n- Built REST APIs in Python and FastAPI serving 10000 requests\n"
+        "- Improved query performance by 40 percent using PostgreSQL indexes\n"
+        "SKILLS\nPython, FastAPI, PostgreSQL, Docker, React\n"
+        "EDUCATION\nB.Tech Computer Science 2026\n"
+    ) * 3
+    res = client.post(
+        "/api/analyze",
+        files={"file": ("resume.txt", resume.encode(), "text/plain")},
+        data={"role": "Backend Developer"},
+        headers=bearer(token),
+    )
+    assert res.status_code == 200
+    assert 0 <= res.json()["overall"] <= 100
+
+
+def test_an_empty_upload_is_rejected(client):
+    token = register(client, "empty@example.com").json()["token"]
+    res = client.post(
+        "/api/analyze",
+        files={"file": ("empty.txt", b"", "text/plain")},
+        headers=bearer(token),
+    )
+    assert res.status_code == 400

@@ -1,5 +1,7 @@
 # RADAR — Resume Analysis & Role Alignment
 
+[![tests](https://github.com/ruchikachoudhary1/radar/actions/workflows/tests.yml/badge.svg)](https://github.com/ruchikachoudhary1/radar/actions/workflows/tests.yml)
+
 RADAR is a full-stack web application that scores a resume against a target role
 or a pasted job description, explains **why** it scored that way across six
 weighted dimensions, and rewrites weak bullet points into strong, quantified

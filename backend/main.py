@@ -225,6 +225,33 @@ def delete_account(
     return {"deleted": True}
 
 
+# A resume is a few hundred kilobytes. The limit exists because the container
+# has 512 MB of RAM and file.read() pulls the whole upload into memory at once:
+# without a cap, one large file takes the service down for everyone. Reading in
+# chunks means an oversized upload is refused after 5 MB rather than after it
+# has already been buffered.
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+_UPLOAD_CHUNK = 64 * 1024
+
+
+async def _read_capped(file: UploadFile) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"That file is too large. The limit is "
+                       f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @app.post("/api/analyze")
 async def analyze(
     file: UploadFile = File(...),
@@ -233,7 +260,7 @@ async def analyze(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    data = await file.read()
+    data = await _read_capped(file)
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
