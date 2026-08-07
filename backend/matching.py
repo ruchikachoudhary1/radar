@@ -4,11 +4,29 @@ Job-description matching.
 Uses TF-IDF vectorisation + cosine similarity to score how closely a resume
 aligns with a pasted job description, and to surface the JD's most important
 terms that are missing from the resume. TF-IDF is fast, dependency-light and
-fully explainable in a viva — every number can be traced back to term frequency.
+fully explainable — every number traces back to term frequency.
+
+A note on the corpus, because this is the part that is easy to get wrong.
+
+IDF only means anything when it is computed over a body of documents. Fitting
+the vectoriser on just the resume and the job description — two documents —
+gives an IDF that is not merely useless but backwards: a term appearing in both
+documents gets a *lower* weight than one appearing in a single document, which
+is the opposite of what similarity scoring wants. The vectoriser is therefore
+fitted over the 21 curated role skill banks as well as the two documents being
+compared, so a term's weight reflects how common it is across the domain rather
+than across a sample of two.
+
+That is still a small corpus. A production system would derive IDF from many
+thousands of real resumes and postings; these 21 banks are a reasonable
+stand-in for a project of this size, and the limitation is stated rather than
+hidden.
 """
 from __future__ import annotations
 
 import re
+
+from roles import ROLE_KEYWORDS
 
 STOPWORDS = {
     "the", "and", "for", "with", "you", "your", "our", "are", "will", "have",
@@ -74,6 +92,22 @@ def jd_keywords(jd_text: str, top_n: int = 25) -> list[str]:
     return [word for word, _ in counts.most_common(top_n)]
 
 
+def _reference_corpus() -> list[str]:
+    """
+    The 21 role skill banks as documents, used to give IDF a real corpus.
+
+    Built once and reused: the banks do not change at runtime, and rebuilding
+    the list on every request would be pure waste.
+    """
+    global _CORPUS
+    if _CORPUS is None:
+        _CORPUS = [" ".join(bank) for bank in ROLE_KEYWORDS.values() if bank]
+    return _CORPUS
+
+
+_CORPUS: list[str] | None = None
+
+
 def similarity(resume_text: str, jd_text: str) -> dict:
     """Cosine similarity between resume and JD, plus matched/missing terms."""
     if not jd_text.strip():
@@ -83,9 +117,13 @@ def similarity(resume_text: str, jd_text: str) -> dict:
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.metrics.pairwise import cosine_similarity
 
+        # The two documents under comparison go last, so their rows are the
+        # final two after fitting; everything before them is the reference
+        # corpus that gives IDF something to measure against.
+        corpus = _reference_corpus() + [resume_text, jd_text]
         vec = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), min_df=1)
-        matrix = vec.fit_transform([resume_text, jd_text])
-        cos = float(cosine_similarity(matrix[0], matrix[1])[0][0])
+        matrix = vec.fit_transform(corpus)
+        cos = float(cosine_similarity(matrix[-2], matrix[-1])[0][0])
     except Exception:
         # Pure-python Jaccard fallback if scikit-learn is unavailable.
         r, j = set(_tokens(resume_text)), set(_tokens(jd_text))
