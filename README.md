@@ -214,13 +214,38 @@ day six is calm, day seven is not.
 See **[DEPLOY.md](DEPLOY.md)** for a step-by-step guide to putting RADAR live for
 free (backend on Render, frontend on Vercel).
 
+## Design decisions
+
+**[DECISIONS.md](DECISIONS.md)** records the choices that had a real
+alternative — hosted Postgres over a SQLite file, public ATS APIs over
+scraping, a rule engine under every AI feature, building authentication rather
+than adopting a provider, and TF-IDF over embeddings — with what each one costs
+and what was turned down.
+
+## Known limits
+
+Stated here rather than left to be discovered:
+
+- The free backend sleeps after 15 minutes, so the first request of the day
+  takes ~50 seconds.
+- TF-IDF matches words, not meaning: a resume saying "frontend" and a posting
+  asking for "React" score nothing from those terms alone.
+- IDF is fitted over the 21 role banks rather than a large corpus of real
+  resumes and postings.
+- Sessions expire at 14 days with no refresh token, and a token cannot be
+  revoked before then.
+- Login throttling is per-process, so it resets on restart and is not shared
+  across instances.
+- Job posting fields are extracted with regexes and left blank rather than
+  guessed when a layout is unusual.
+- Signup has no email verification.
+
 ## Roadmap
 
-- User accounts and saved resume profiles with progress tracking over time.
 - Swap TF-IDF for sentence-transformer embeddings for deeper semantic matching.
 - Inline, section-by-section resume editor with live re-scoring.
-- Rate limiting, request logging, and observability.
-- CI pipeline (GitHub Actions) running the test suite on every push.
+- Request logging and observability.
+- Refresh tokens, so a session can be ended rather than only expiring.
 
 ## License
 
