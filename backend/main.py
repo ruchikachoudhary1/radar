@@ -39,8 +39,11 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Create tables and apply column migrations once, at startup."""
+    """Create tables, apply column migrations, and warm the ML imports."""
     database.init_db()
+    # Importing scikit-learn takes seconds. Doing it here means the process
+    # pays it during boot rather than the first person to upload a resume.
+    matching.warm_up()
     yield
 
 

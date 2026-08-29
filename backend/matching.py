@@ -92,6 +92,30 @@ def jd_keywords(jd_text: str, top_n: int = 25) -> list[str]:
     return [word for word, _ in counts.most_common(top_n)]
 
 
+def warm_up() -> None:
+    """
+    Import scikit-learn and build the corpus before any user asks for them.
+
+    The sklearn imports below are inside similarity() so that a missing or
+    broken install degrades to keyword overlap instead of crashing the app.
+    The cost of that is paid by whoever makes the first request: importing
+    scikit-learn takes several seconds, and on a free tier that sleeps after
+    fifteen minutes it is paid again after every wake-up.
+
+    Called at startup so the process absorbs it instead of a person waiting on
+    an upload. Failure is deliberately silent — this is an optimisation, and
+    similarity() still has its own fallback.
+    """
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        TfidfVectorizer(stop_words="english", ngram_range=(1, 2), min_df=1).fit(
+            _reference_corpus()
+        )
+    except Exception:
+        pass
+
+
 def _reference_corpus() -> list[str]:
     """
     The 21 role skill banks as documents, used to give IDF a real corpus.

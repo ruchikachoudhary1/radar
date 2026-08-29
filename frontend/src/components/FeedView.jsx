@@ -31,7 +31,7 @@ export default function FeedView({ onTracked }) {
     load();
   }, []);
 
-  async function load() {
+  async function load(force = false) {
     setLoading(true);
     setError("");
     try {
@@ -41,7 +41,7 @@ export default function FeedView({ onTracked }) {
         setEditing(true);
         setFeed({ jobs: [], problems: [], configured: false });
       } else {
-        setFeed(await getFeed());
+        setFeed(await getFeed({ force }));
       }
     } catch (e) {
       setError(e.message || "Couldn't load your feed.");
@@ -131,7 +131,7 @@ export default function FeedView({ onTracked }) {
           <div className="section-title" style={{ margin: 0 }}>
             {jobs.length} matching {jobs.length === 1 ? "role" : "roles"}
           </div>
-          <button className="link-btn" onClick={load}>
+          <button className="link-btn" onClick={() => load(true)}>
             Check again
           </button>
         </div>

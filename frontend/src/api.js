@@ -17,6 +17,8 @@ export function getToken() {
 }
 
 export function setToken(token) {
+  // Signing in or out must not leave the previous session's data behind.
+  invalidate();
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else localStorage.removeItem(TOKEN_KEY);
@@ -24,6 +26,40 @@ export function setToken(token) {
     /* private browsing — the session just won't survive a refresh */
   }
 }
+
+// --- Response cache ---------------------------------------------------------
+// Views are unmounted when you switch tabs, so every switch re-ran every fetch
+// and the app felt like it was reloading itself. These reads are cheap to
+// repeat but not free — the job feed in particular calls out to external job
+// boards — so each is held briefly and served from memory in between.
+//
+// Anything that changes data clears the entries it affects, and signing in or
+// out clears everything: a cache that outlived a session would show one
+// account another's applications.
+
+const _cache = new Map();
+
+function cached(key, ttlMs, fetcher) {
+  const hit = _cache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.value;
+
+  // The promise is stored, not the resolved value, so two views mounting at
+  // once share one request instead of racing.
+  const value = fetcher().catch((err) => {
+    _cache.delete(key);
+    throw err;
+  });
+  _cache.set(key, { value, expires: Date.now() + ttlMs });
+  return value;
+}
+
+export function invalidate(...keys) {
+  if (keys.length === 0) _cache.clear();
+  else keys.forEach((k) => _cache.delete(k));
+}
+
+const FRESH = 30_000;        // own data — cheap to refetch, changes often
+const FEED_FRESH = 300_000;  // hits external job boards; "Check again" forces it
 
 /** Listeners notified when the server rejects our token, so the UI can sign out. */
 const expiryListeners = new Set();
@@ -97,6 +133,8 @@ export async function deleteAccount() {
 }
 
 export async function analyzeResume({ file, role, jobDescription }) {
+  // A new analysis changes the history list and the dashboard counts.
+  invalidate("history", "summary");
   const form = new FormData();
   form.append("file", file);
   form.append("role", role || "");
@@ -123,6 +161,8 @@ export async function getInterviewQuestions(analysisId) {
 }
 
 export async function buildResume(analysisId, answers) {
+  // This write changes what those reads return.
+  invalidate("history", "summary");
   return handle(
     await fetch(`${BASE}/api/interview/build`, {
       ...jsonRequest("POST", { analysis_id: analysisId, answers }),
@@ -133,10 +173,14 @@ export async function buildResume(analysisId, answers) {
 // --- Master profile --------------------------------------------------------
 
 export async function getProfile() {
-  return handle(await fetch(`${BASE}/api/profile`, { headers: authHeaders() }));
+  return cached("profile", FRESH, async () =>
+    handle(await fetch(`${BASE}/api/profile`, { headers: authHeaders() }))
+  );
 }
 
 export async function saveProfile(profile) {
+  // This write changes what those reads return.
+  invalidate("profile", "summary");
   return handle(
     await fetch(`${BASE}/api/profile`, {
       ...jsonRequest("PUT", { profile }),
@@ -145,6 +189,8 @@ export async function saveProfile(profile) {
 }
 
 export async function profileFromAnalysis(analysisId) {
+  // This write changes what those reads return.
+  invalidate("profile", "summary");
   return handle(
     await fetch(`${BASE}/api/profile/from-analysis`, {
       ...jsonRequest("POST", { analysis_id: analysisId }),
@@ -163,7 +209,9 @@ export async function parseJob({ url, text }) {
 }
 
 export async function getApplications() {
-  return handle(await fetch(`${BASE}/api/applications`, { headers: authHeaders() }));
+  return cached("applications", FRESH, async () =>
+    handle(await fetch(`${BASE}/api/applications`, { headers: authHeaders() }))
+  );
 }
 
 export async function getApplication(id) {
@@ -171,6 +219,8 @@ export async function getApplication(id) {
 }
 
 export async function createApplication(payload) {
+  // This write changes what those reads return.
+  invalidate("applications", "summary", "feed");
   return handle(
     await fetch(`${BASE}/api/applications`, {
       ...jsonRequest("POST", payload),
@@ -179,6 +229,8 @@ export async function createApplication(payload) {
 }
 
 export async function updateApplication(id, changes) {
+  // This write changes what those reads return.
+  invalidate("applications", "summary");
   return handle(
     await fetch(`${BASE}/api/applications/${id}`, {
       ...jsonRequest("PATCH", changes),
@@ -187,12 +239,16 @@ export async function updateApplication(id, changes) {
 }
 
 export async function retailorApplication(id) {
+  // This write changes what those reads return.
+  invalidate("applications", "summary");
   return handle(
     await fetch(`${BASE}/api/applications/${id}/tailor`, { method: "POST", headers: authHeaders() })
   );
 }
 
 export async function writeCoverLetter(id) {
+  // This write changes what those reads return.
+  invalidate("applications", "summary");
   return handle(
     await fetch(`${BASE}/api/applications/${id}/cover-letter`, {
       method: "POST",
@@ -202,6 +258,8 @@ export async function writeCoverLetter(id) {
 }
 
 export async function deleteApplication(id) {
+  // This write changes what those reads return.
+  invalidate("applications", "summary");
   return handle(
     await fetch(`${BASE}/api/applications/${id}`, { method: "DELETE", headers: authHeaders() })
   );
@@ -236,16 +294,22 @@ export async function downloadResume(text, format, filename = "resume") {
 }
 
 export async function getHistory() {
-  return handle(await fetch(`${BASE}/api/history`, { headers: authHeaders() }));
+  return cached("history", FRESH, async () =>
+    handle(await fetch(`${BASE}/api/history`, { headers: authHeaders() }))
+  );
 }
 
 // --- Job feed --------------------------------------------------------------
 
 export async function getPreferences() {
-  return handle(await fetch(`${BASE}/api/preferences`, { headers: authHeaders() }));
+  return cached("preferences", FRESH, async () =>
+    handle(await fetch(`${BASE}/api/preferences`, { headers: authHeaders() }))
+  );
 }
 
 export async function savePreferences(preferences) {
+  // This write changes what those reads return.
+  invalidate("preferences", "feed");
   return handle(
     await fetch(`${BASE}/api/preferences`, { ...jsonRequest("PUT", preferences) })
   );
@@ -257,12 +321,17 @@ export async function checkBoard({ source, token }) {
   );
 }
 
-export async function getFeed() {
-  return handle(await fetch(`${BASE}/api/feed`, { headers: authHeaders() }));
+export async function getFeed({ force = false } = {}) {
+  if (force) invalidate("feed");
+  return cached("feed", FEED_FRESH, async () =>
+    handle(await fetch(`${BASE}/api/feed`, { headers: authHeaders() }))
+  );
 }
 
 export async function getSummary() {
-  return handle(await fetch(`${BASE}/api/summary`, { headers: authHeaders() }));
+  return cached("summary", FRESH, async () =>
+    handle(await fetch(`${BASE}/api/summary`, { headers: authHeaders() }))
+  );
 }
 
 export async function getHealth() {
