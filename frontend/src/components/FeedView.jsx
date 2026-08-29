@@ -224,7 +224,14 @@ function PreferencesPanel({ prefs, open, onToggle, onSave }) {
     setDraft((d) => ({ ...d, [key]: value }));
   }
 
-  const asList = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
+  // Comma-separated fields keep their raw text while being typed, and are only
+  // split when saved. Parsing on every keystroke deleted the comma the moment
+  // it was pressed — "delhi," became "delhi" before the next letter arrived, so
+  // a second entry could never be typed at all.
+  const [rolesText, setRolesText] = useState((prefs.roles || []).join(", "));
+  const [locationsText, setLocationsText] = useState((prefs.locations || []).join(", "));
+
+  const asList = (text) => text.split(",").map((x) => x.trim()).filter(Boolean);
 
   async function addBoard() {
     setChecking(true);
@@ -327,8 +334,8 @@ function PreferencesPanel({ prefs, open, onToggle, onSave }) {
           <input
             type="text"
             placeholder="backend, machine learning, sde"
-            value={(draft.roles || []).join(", ")}
-            onChange={(e) => set("roles", asList(e.target.value))}
+            value={rolesText}
+            onChange={(e) => setRolesText(e.target.value)}
           />
         </label>
         <label className="field" style={{ marginBottom: 0 }}>
@@ -336,8 +343,8 @@ function PreferencesPanel({ prefs, open, onToggle, onSave }) {
           <input
             type="text"
             placeholder="Bengaluru, Hyderabad"
-            value={(draft.locations || []).join(", ")}
-            onChange={(e) => set("locations", asList(e.target.value))}
+            value={locationsText}
+            onChange={(e) => setLocationsText(e.target.value)}
           />
         </label>
       </div>
@@ -368,7 +375,11 @@ function PreferencesPanel({ prefs, open, onToggle, onSave }) {
           className="btn primary"
           onClick={async () => {
             setSaving(true);
-            await onSave(draft);
+            await onSave({
+              ...draft,
+              roles: asList(rolesText),
+              locations: asList(locationsText),
+            });
             setSaving(false);
           }}
           disabled={saving}
