@@ -5,6 +5,12 @@ services:
     name: radar-api
     runtime: python
     plan: free
+    # Put the API in the same region as the database and near its users.
+    # Render defaults to Oregon; with a Neon project in ap-southeast-1 that
+    # means every query crosses the Pacific twice, which showed up as roughly
+    # 300-600ms added to any request that touches the database.
+    # NOTE: region cannot be changed on an existing service — see DEPLOY.md.
+    region: singapore
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT

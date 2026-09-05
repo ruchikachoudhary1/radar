@@ -53,8 +53,25 @@ def secret_key() -> str:
     return "dev-only-insecure-key-do-not-deploy"
 
 
+# bcrypt's cost factor is meant to be calibrated to the hardware it runs on:
+# high enough that guessing is expensive, low enough that a real sign-in is not
+# a visible wait. The library default of 12 costs ~250ms on a developer laptop
+# but noticeably more on a shared free-tier vCPU, where it became a large part
+# of how slow signing in felt. 11 is roughly half that and still far above the
+# minimum anyone recommends. Raise it via BCRYPT_ROUNDS on better hardware.
+def _rounds() -> int:
+    try:
+        value = int(os.getenv("BCRYPT_ROUNDS", "11"))
+    except ValueError:
+        return 11
+    # Refuse to be configured into insecurity, or into a timeout.
+    return max(10, min(value, 15))
+
+
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(
+        password.encode("utf-8"), bcrypt.gensalt(rounds=_rounds())
+    ).decode("utf-8")
 
 
 def verify_password(password: str, hashed: str) -> bool:

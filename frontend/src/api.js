@@ -84,8 +84,13 @@ async function handle(res) {
       /* ignore */
     }
     if (res.status === 401) {
+      // A 401 means "your session is gone" only if there was a session. On the
+      // sign-in form there is no token yet, so a 401 there means the password
+      // was wrong — announcing an expiry as well showed the same sentence in
+      // two stacked banners.
+      const hadSession = !!getToken();
       setToken("");
-      expiryListeners.forEach((fn) => fn(detail));
+      if (hadSession) expiryListeners.forEach((fn) => fn(detail));
     }
     throw new Error(detail);
   }
