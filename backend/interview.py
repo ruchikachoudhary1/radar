@@ -232,28 +232,31 @@ def _gemini_polish(questions: list[dict], role: str) -> list[dict]:
     """Ask Gemini to re-word the questions. Returns [] on any failure."""
     if not questions:
         return []
-    try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
-        slim = [{"id": q["id"], "question": q["question"]} for q in questions]
-        resp = model.generate_content(
-            QUESTION_POLISH_PROMPT.format(
-                role=role or "software", questions=json.dumps(slim, indent=2)
-            )
+    slim = [{"id": q["id"], "question": q["question"]} for q in questions]
+    raw = ai.generate(
+        QUESTION_POLISH_PROMPT.format(
+            role=role or "software", questions=json.dumps(slim, indent=2)
         )
-        data = json.loads(_strip_fences(resp.text))
-        by_id = {d["id"]: d["question"] for d in data if isinstance(d, dict) and "id" in d}
-        out = []
-        for q in questions:
-            merged = dict(q)
-            if by_id.get(q["id"]):
-                merged["question"] = by_id[q["id"]].strip()
-            out.append(merged)
-        return out
-    except Exception:
+    )
+    if not raw:
         return []
+    try:
+        data = json.loads(_strip_fences(raw))
+    except (ValueError, TypeError):
+        # A model that returns prose instead of JSON is a failure like any
+        # other: fall back to the rule-written questions.
+        return []
+
+    by_id = {d["id"]: d["question"] for d in data if isinstance(d, dict) and "id" in d}
+    out = []
+    for q in questions:
+        merged = dict(q)
+        if by_id.get(q["id"]):
+            merged["question"] = by_id[q["id"]].strip()
+        out.append(merged)
+    return out
+
+
 
 
 def build_questions(text: str, report: dict, role: str = "") -> dict:
@@ -287,23 +290,23 @@ def _answered(questions: list[dict], answers: dict) -> list[tuple[dict, str]]:
 
 
 def _gemini_rebuild(text: str, pairs: list[tuple[dict, str]], role: str) -> str:
-    try:
-        import google.generativeai as genai
+    block = "\n\n".join(
+        f"Q ({q['area']}): {q['question']}\nA: {a}"
+        + (
+            f"\n[This answer refers to the existing line: \"{q['context']}\"]"
+            if q.get("context") and q["id"].startswith(("metric_", "verb_"))
+            else ""
+        )
+        for q, a in pairs
+    )
+    out = _strip_fences(ai.generate(
+        REBUILD_PROMPT.format(role=role or "software engineering", resume=text, answers=block)
+    ))
+    return out if len(out.split()) > 60 else ""
 
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
-        block = "\n\n".join(
-            f"Q ({q['area']}): {q['question']}\nA: {a}"
-            + (f"\n[This answer refers to the existing line: \"{q['context']}\"]" if q.get("context") and q["id"].startswith(("metric_", "verb_")) else "")
-            for q, a in pairs
-        )
-        resp = model.generate_content(
-            REBUILD_PROMPT.format(role=role or "software engineering", resume=text, answers=block)
-        )
-        out = _strip_fences(resp.text)
-        return out if len(out.split()) > 60 else ""
-    except Exception:
-        return ""
+
+
+
 
 
 def _rule_rebuild(text: str, pairs: list[tuple[dict, str]]) -> tuple[str, list[dict]]:

@@ -36,6 +36,42 @@ def gemini_available() -> bool:
     return bool(os.getenv("GEMINI_API_KEY"))
 
 
+# Every outbound HTTP call in this project sets a timeout except, until now,
+# the model calls — which are the slowest and most likely to hang. Without one
+# a stalled upstream holds a worker open indefinitely, and on a free tier with
+# very few workers that is enough to take the whole app down while the API key
+# is technically "working".
+#
+# Twenty seconds is well past a normal completion for these prompts and well
+# short of a user giving up. Everything here has a deterministic fallback, so a
+# timeout costs quality, never availability.
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT", "20"))
+
+
+def generate(prompt: str) -> str:
+    """
+    Ask Gemini for a completion. Returns "" on any failure at all.
+
+    Callers treat an empty string as "use the rule engine", so every failure
+    mode — no key, bad key, quota exhausted, network down, timeout, a response
+    with no text — collapses to the same branch rather than each caller having
+    to handle them separately.
+    """
+    if not gemini_available():
+        return ""
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
+        resp = model.generate_content(
+            prompt, request_options={"timeout": GEMINI_TIMEOUT_SECONDS}
+        )
+        return (resp.text or "").strip()
+    except Exception:
+        return ""
+
+
 def rewrite_bullet(bullet: str, n: int = 3) -> dict:
     bullet = bullet.strip()
     if not bullet:
@@ -48,20 +84,15 @@ def rewrite_bullet(bullet: str, n: int = 3) -> dict:
 
 
 def _gemini_rewrite(bullet: str, n: int) -> list[str]:
-    try:
-        import google.generativeai as genai
+    text = generate(REWRITE_PROMPT.format(bullet=bullet, n=n))
+    lines = [
+        re.sub(r"^\s*\d+[.)]\s*", "", ln).strip(" -*	")
+        for ln in text.splitlines()
+        if ln.strip()
+    ]
+    return [ln for ln in lines if ln][:n]
 
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
-        resp = model.generate_content(REWRITE_PROMPT.format(bullet=bullet, n=n))
-        lines = [
-            re.sub(r"^\s*\d+[.)]\s*", "", ln).strip(" -*\t")
-            for ln in resp.text.splitlines()
-            if ln.strip()
-        ]
-        return [ln for ln in lines if ln][:n]
-    except Exception:
-        return []
+
 
 
 def _rule_rewrite(bullet: str, n: int) -> list[str]:

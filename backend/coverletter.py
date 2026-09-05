@@ -54,24 +54,16 @@ def _strip_fences(raw: str) -> str:
 
 
 def _gemini_letter(profile_text: str, jd_text: str, title: str, company: str) -> str:
-    try:
-        import google.generativeai as genai
+    out = _strip_fences(ai.generate(LETTER_PROMPT.format(
+        title=title or "the advertised role",
+        company=company or "the company",
+        jd=jd_text[:6000],
+        profile=profile_text,
+    )))
+    # Too short means the model returned a refusal or a fragment.
+    return out if len(out.split()) > 80 else ""
 
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
-        resp = model.generate_content(
-            LETTER_PROMPT.format(
-                title=title or "the advertised role",
-                company=company or "the company",
-                jd=jd_text[:6000],
-                profile=profile_text,
-            )
-        )
-        out = _strip_fences(resp.text)
-        # Too short means the model returned a refusal or a fragment.
-        return out if len(out.split()) > 80 else ""
-    except Exception:
-        return ""
+
 
 
 def _matched_skills(profile: dict, keywords: list[str], limit: int = 6) -> list[str]:

@@ -50,23 +50,15 @@ CANDIDATE PROFILE
 
 
 def _gemini_tailor(profile_text: str, jd_text: str, title: str, company: str) -> str:
-    try:
-        import google.generativeai as genai
+    out = _strip_fences(ai.generate(TAILOR_PROMPT.format(
+        title=title or "the advertised role",
+        company=company or "the company",
+        jd=jd_text[:6000],
+        profile=profile_text,
+    )))
+    return out if len(out.split()) > 60 else ""
 
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
-        resp = model.generate_content(
-            TAILOR_PROMPT.format(
-                title=title or "the advertised role",
-                company=company or "the company",
-                jd=jd_text[:6000],
-                profile=profile_text,
-            )
-        )
-        out = _strip_fences(resp.text)
-        return out if len(out.split()) > 60 else ""
-    except Exception:
-        return ""
+
 
 
 def _strip_fences(raw: str) -> str:
