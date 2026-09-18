@@ -114,9 +114,6 @@ def test_docx_export_produces_a_zip():
     assert data[:2] == b"PK", "a .docx is a zip archive"
 
 
-def test_pdf_export_produces_a_pdf():
-    data = documents.to_pdf("Yug Sharma\n\nEXPERIENCE\n- Built a thing — with an em dash")
-    assert data[:4] == b"%PDF"
 
 
 def test_safe_filename_strips_junk():

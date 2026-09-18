@@ -252,10 +252,6 @@ export default function InterviewPanel({ report, filename }) {
           {busyFormat === "docx" && <span className="spinner" />}
           Download .docx
         </button>
-        <button className="btn ghost" onClick={() => save("pdf")} disabled={!!busyFormat}>
-          {busyFormat === "pdf" && <span className="spinner" />}
-          Download .pdf
-        </button>
         <button
           className="btn ghost"
           onClick={() => navigator.clipboard?.writeText(result.resume_text)}

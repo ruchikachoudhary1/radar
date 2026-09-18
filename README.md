@@ -38,8 +38,8 @@ engineering breadth end-to-end:
   origin-restricted CORS, login throttling, Dockerfiles for both services, an
   nginx reverse proxy, a Docker Compose stack, and one-click cloud deploy
   configs.
-- **Tested.** 167 tests covering the scoring engine, parser, matcher, rewriter,
-  follow-up rules, cover letters, the job feed, and account isolation.
+- **Tested.** 177 tests covering the scoring engine, parser, matcher, rewriter,
+  follow-up rules, cover letters, model-call fallbacks, and account isolation.
 
 ## Features
 
@@ -86,20 +86,8 @@ engineering breadth end-to-end:
   as the resume. Where a number would help and the profile has none, it leaves a
   marked `[add detail]` placeholder and tells you how many are left, rather than
   inventing one.
-- Export any generated resume or letter to **.docx, .pdf or .txt**.
-
-### Job feed
-
-- Add the companies you care about by their job-board name. RADAR reads their
-  open roles straight from **Greenhouse** and **Lever**, which publish every
-  listing on a company's careers page as unauthenticated JSON.
-- This is deliberately not scraping LinkedIn or Naukri: they block automated
-  requests and forbid it in their terms. The ATS endpoints are a supported route
-  and more reliable.
-- Filter by role keywords, location, internship-only and remote-only. Track any
-  posting into the pipeline in one click.
-- Refreshed when you open the page, and a scheduled workflow wakes the free
-  backend each weekday morning so the first visit of the day is not a cold start.
+- Export any generated resume or letter to **.docx** or plain text — Word is
+  what application portals ask for, and its layout is kept ATS-safe.
 
 ### Accounts
 
@@ -114,20 +102,20 @@ engineering breadth end-to-end:
    Browser ---> |  React + Vite SPA  | --/api-> |  FastAPI (Uvicorn)         |
                 |  custom design sys |  HTTP  |   parsing → scoring → match  |
                 +-------------------+        |   rewrite (Gemini/offline)   |
-                                             |   SQLite (history)           |
+                                             |   PostgreSQL (SQLAlchemy)    |
                                              +----------------------------+
 ```
 
 - **`frontend/`** — React 18 + Vite. Hand-built SVG gauges (no chart library),
-  a custom warm-editorial design system, eight views (Dashboard, Analyze, Job
-  feed, Applications, Profile, Rewrite, History, Method).
+  a custom warm-editorial design system, seven views (Dashboard, Analyze,
+  Applications, Profile, Rewrite, History, Method).
 - **`backend/`** — FastAPI. Modules: `parsing.py` (PDF/DOCX extraction),
   `scoring.py` (the rubric engine), `matching.py` (TF-IDF JD matching),
   `ai.py` (Gemini + fallback), `interview.py` (gap detection and rebuild),
   `profiles.py` (resume → structured profile), `jobs.py` (posting fetch and
   field extraction), `tailor.py` (per-job resume generation),
   `coverletter.py` (per-job letters), `urgency.py` (follow-up rules),
-  `jobfeed.py` (Greenhouse/Lever adapters), `documents.py` (.docx/.pdf output),
+  `documents.py` (.docx output),
   `models.py` + `db.py` + `database.py` (schema, connection, data access),
   `auth.py` (bcrypt, JWT, throttling), `roles.py` (curated knowledge base),
   `main.py` (API).
@@ -150,9 +138,8 @@ why every output can be explained rather than shrugged at.
 | Parsing   | pdfplumber, python-docx |
 | Storage   | SQLAlchemy ORM — PostgreSQL (Neon) in production, SQLite locally |
 | Accounts  | bcrypt password hashing, PyJWT stateless sessions |
-| Job feed  | Greenhouse and Lever public JSON board APIs |
 | DevOps    | Docker, Docker Compose, nginx, Render / Vercel, GitHub Actions |
-| Testing   | pytest — 167 tests |
+| Testing   | pytest — 177 tests |
 
 ## Run it locally
 
@@ -217,10 +204,9 @@ free (backend on Render, frontend on Vercel).
 ## Design decisions
 
 **[DECISIONS.md](DECISIONS.md)** records the choices that had a real
-alternative — hosted Postgres over a SQLite file, public ATS APIs over
-scraping, a rule engine under every AI feature, building authentication rather
-than adopting a provider, and TF-IDF over embeddings — with what each one costs
-and what was turned down.
+alternative — hosted Postgres over a SQLite file, a rule engine under every AI
+feature, building authentication rather than adopting a provider, and TF-IDF
+over embeddings — with what each one costs and what was turned down.
 
 ## Known limits
 

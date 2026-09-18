@@ -43,36 +43,6 @@ is different from losing a cache.
 
 ---
 
-## Public ATS APIs instead of scraping job boards
-
-*5 August 2026*
-
-**Decision:** Build the job feed on the public JSON endpoints that Greenhouse
-and Lever publish, rather than scraping LinkedIn, Naukri or Internshala.
-
-**Why:** Those boards block automated requests and forbid scraping in their
-terms of service. Building a core feature on something that is both actively
-defended against and contractually prohibited means the feature breaks the
-first time they change a selector, and it is not defensible when someone asks
-where the data comes from.
-
-Greenhouse and Lever host the careers pages of a large share of tech companies
-and expose every posting as unauthenticated JSON. It is a documented, supported
-route to the same information, and it is more reliable precisely because it is
-intended to be read by machines.
-
-**Trade-off:** Coverage. Companies not hosted on Greenhouse or Lever are not in
-the feed, and there is no way to add them without another adapter. A scraper
-would have reached more postings — while working less often.
-
-**Rejected:** Scraping the major boards, for the reasons above. Paid aggregator
-APIs, which solve coverage but not for free. A browser extension, which reads
-the page the user is already authenticated to and would genuinely work — but is
-a separate application with its own build and distribution story, and was not
-worth the scope.
-
----
-
 ## A deterministic engine underneath every AI feature
 
 *Ongoing, from the first version*

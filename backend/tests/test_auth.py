@@ -434,70 +434,6 @@ def test_deleting_requires_a_token(client):
 
 
 # --------------------------------------------------------------------------
-# Preferences
-# --------------------------------------------------------------------------
-def test_preferences_start_with_sensible_defaults(client):
-    token = register(client, "pref1@example.com").json()["token"]
-    body = client.get("/api/preferences", headers=bearer(token)).json()
-    assert body["preferences"]["companies"] == []
-    assert body["preferences"]["internships_only"] is False
-    assert "greenhouse" in body["sources"]
-
-
-def test_preferences_round_trip(client):
-    token = register(client, "pref2@example.com").json()["token"]
-    client.put("/api/preferences", headers=bearer(token), json={
-        "roles": ["backend"],
-        "locations": ["Bengaluru"],
-        "companies": [{"source": "greenhouse", "token": "stripe", "label": "Stripe"}],
-        "internships_only": True,
-        "remote_only": False,
-    })
-    prefs = client.get("/api/preferences", headers=bearer(token)).json()["preferences"]
-    assert prefs["roles"] == ["backend"]
-    assert prefs["internships_only"] is True
-    assert prefs["companies"][0]["token"] == "stripe"
-
-
-def test_a_board_name_that_could_redirect_the_request_is_refused_on_save(client):
-    """Validated at save time so a bad entry cannot sit there failing silently."""
-    token = register(client, "pref3@example.com").json()["token"]
-    res = client.put("/api/preferences", headers=bearer(token), json={
-        "companies": [{"source": "greenhouse", "token": "../../admin"}],
-    })
-    assert res.status_code == 400
-
-
-def test_an_unknown_feed_source_is_refused_on_save(client):
-    token = register(client, "pref4@example.com").json()["token"]
-    res = client.put("/api/preferences", headers=bearer(token), json={
-        "companies": [{"source": "linkedin", "token": "acme"}],
-    })
-    assert res.status_code == 400
-
-
-def test_preferences_are_per_user(client):
-    a = register(client, "pref5@example.com").json()["token"]
-    b = register(client, "pref6@example.com").json()["token"]
-    client.put("/api/preferences", headers=bearer(a), json={"roles": ["backend"]})
-    assert client.get("/api/preferences", headers=bearer(b)).json()["preferences"]["roles"] == []
-
-
-def test_the_feed_says_it_is_unconfigured_rather_than_just_empty(client):
-    """An empty feed and an unset feed need to look different in the UI."""
-    token = register(client, "pref7@example.com").json()["token"]
-    body = client.get("/api/feed", headers=bearer(token)).json()
-    assert body["configured"] is False
-    assert body["jobs"] == []
-
-
-def test_feed_endpoints_require_a_token(client):
-    assert client.get("/api/feed").status_code == 401
-    assert client.get("/api/preferences").status_code == 401
-    assert client.post("/api/feed/check", json={"token": "x"}).status_code == 401
-
-
-# --------------------------------------------------------------------------
 # Upload limits
 # --------------------------------------------------------------------------
 def test_an_oversized_upload_is_refused_rather_than_buffered(client):
@@ -540,3 +476,32 @@ def test_an_empty_upload_is_rejected(client):
         headers=bearer(token),
     )
     assert res.status_code == 400
+
+
+# --------------------------------------------------------------------------
+# Export formats
+# --------------------------------------------------------------------------
+
+
+def test_word_and_plain_text_exports_work(client):
+    token = register(client, "export1@example.com").json()["token"]
+    for fmt, marker in (("docx", b"PK"), ("txt", b"Test Person")):
+        res = client.post(
+            "/api/export",
+            json={"text": "Test Person\n\nEXPERIENCE\n- Built a thing", "format": fmt},
+            headers=bearer(token),
+        )
+        assert res.status_code == 200, fmt
+        assert res.content.startswith(marker), fmt
+
+
+def test_pdf_export_is_refused_with_a_clear_message_not_a_crash(client):
+    """PDF generation was removed; asking for it must be a 400, never a 500."""
+    token = register(client, "export2@example.com").json()["token"]
+    res = client.post(
+        "/api/export",
+        json={"text": "Test Person\n\nEXPERIENCE\n- Built a thing", "format": "pdf"},
+        headers=bearer(token),
+    )
+    assert res.status_code == 400
+    assert "docx" in res.json()["detail"]

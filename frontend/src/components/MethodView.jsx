@@ -16,7 +16,7 @@ const STACK = [
   ["AI", "Google Gemini for rewriting and tailoring, with a deterministic offline fallback"],
   ["Data", "SQLAlchemy over PostgreSQL in production, SQLite locally — one switch, same code"],
   ["Accounts", "bcrypt password hashing, stateless JWT sessions, per-user data isolation"],
-  ["Parsing", "pdfplumber and python-docx in; python-docx and fpdf2 back out"],
+  ["Parsing", "pdfplumber and python-docx read uploads in; python-docx writes the .docx back out"],
 ];
 
 const PIPELINE = [
@@ -47,10 +47,6 @@ const PIPELINE = [
   [
     "Follow-up urgency",
     "Each application is graded from its stage, the date it was sent and the company's closing date: calm for the first week, a warning after seven days of silence, urgent after fourteen or once a deadline passes. The rule lives in one tested module rather than in the component, so the dashboard and the pipeline can never disagree about what needs chasing.",
-  ],
-  [
-    "Job feed",
-    "Greenhouse and Lever publish every listing on a company's careers page as unauthenticated JSON, which is a supported route — unlike scraping the big job boards, which block it and forbid it. Saved board names are restricted to the characters real tokens use, since the name goes into the request path. One unreachable board reports itself rather than emptying the feed.",
   ],
 ];
 
@@ -152,8 +148,7 @@ export default function MethodView() {
           Stated here rather than discovered later. The free backend sleeps after fifteen minutes,
           so the first request of the day waits roughly fifty seconds. Sessions expire at fourteen
           days with no refresh token. Posting fields are extracted with regexes and are left blank
-          rather than guessed when a layout is unusual. Signup has no email verification. The job
-          feed covers companies hosted on Greenhouse and Lever, which is most but not all of them.
+          rather than guessed when a layout is unusual. Signup has no email verification.
         </p>
       </div>
     </div>

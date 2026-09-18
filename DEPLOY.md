@@ -79,8 +79,9 @@ needs a redeploy, not just a refresh.
 1. Open the Vercel URL. The first load may take ~50 seconds while Render wakes.
 2. Create an account.
 3. In the Neon dashboard, open **Tables**. You should see `users`, `profiles`,
-   `analyses`, `applications` and `preferences`, created automatically on
-   startup, with your row in `users`.
+   `analyses` and `applications`, created automatically on startup, with your
+   row in `users`. (An older deploy may also show a `preferences` table from the
+   job feed that has since been removed; it is unused and safe to drop.)
 4. Look at `password_hash` — a bcrypt digest beginning `$2b$`, not your password.
 
 Step 3 is the one that matters. If `DATABASE_URL` were wrong, the app would fall

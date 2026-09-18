@@ -1,5 +1,5 @@
 """
-Resume export to DOCX and PDF.
+Resume export to DOCX.
 
 The rebuilt resume is held as plain text with a simple, deliberate convention:
   * an UPPERCASE line on its own is a section heading
@@ -7,8 +7,10 @@ The rebuilt resume is held as plain text with a simple, deliberate convention:
   * the first non-empty line is the candidate's name
   * everything else is a normal paragraph
 
-Both writers read that same structure, so DOCX and PDF stay in sync. Layout is
-kept plain on purpose: ATS parsers choke on tables, columns and text boxes.
+The writer reads that structure rather than guessing from formatting, so what
+the app shows and what the file contains cannot drift apart. Layout is kept
+plain on purpose: ATS parsers choke on tables, columns and text boxes, and most
+application portals ask for a Word file anyway.
 """
 from __future__ import annotations
 
@@ -122,68 +124,6 @@ def _bottom_border(paragraph) -> None:
     bottom.set(qn("w:color"), "999999")
     borders.append(bottom)
     pPr.append(borders)
-
-
-# --------------------------------------------------------------------------
-# PDF
-# --------------------------------------------------------------------------
-_LATIN_FIXES = {
-    "‘": "'", "’": "'", "“": '"', "”": '"',
-    "–": "-", "—": "-", "…": "...", " ": " ",
-    "•": "-", "→": "->",
-}
-
-
-def _latin(text: str) -> str:
-    """fpdf2's core fonts are Latin-1 only; degrade smart punctuation safely."""
-    for bad, good in _LATIN_FIXES.items():
-        text = text.replace(bad, good)
-    return text.encode("latin-1", "replace").decode("latin-1")
-
-
-def to_pdf(text: str) -> bytes:
-    from fpdf import FPDF
-
-    pdf = FPDF(format="A4", unit="mm")
-    pdf.set_auto_page_break(auto=True, margin=14)
-    pdf.set_margins(16, 14, 16)
-    pdf.add_page()
-    width = pdf.w - 32
-
-    for kind, content in parse_blocks(text):
-        content = _latin(content)
-
-        if kind == "blank":
-            pdf.ln(2)
-
-        elif kind == "name":
-            pdf.set_font("Helvetica", "B", 18)
-            pdf.multi_cell(width, 8, content, align="C")
-            pdf.ln(1)
-
-        elif kind == "heading":
-            pdf.ln(3)
-            pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(0, 5.5, content.upper(), new_x="LMARGIN", new_y="NEXT")
-            y = pdf.get_y()
-            pdf.set_draw_color(150, 150, 150)
-            pdf.set_line_width(0.2)
-            pdf.line(16, y, pdf.w - 16, y)
-            pdf.ln(1.5)
-
-        elif kind == "bullet":
-            pdf.set_font("Helvetica", "", 10)
-            x = pdf.get_x()
-            pdf.cell(4, 4.8, chr(149))
-            pdf.set_x(x + 4)
-            pdf.multi_cell(width - 4, 4.8, content)
-
-        else:
-            pdf.set_font("Helvetica", "", 10)
-            pdf.multi_cell(width, 4.8, content)
-
-    out = pdf.output()
-    return bytes(out)
 
 
 def safe_filename(base: str, ext: str) -> str:

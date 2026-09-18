@@ -424,10 +424,6 @@ function ResumeDrawer({ app, onClose, onRebuild, onDownload, onWriteLetter }) {
               {busy === "docx" && <span className="spinner" />}
               Download .docx
             </button>
-            <button className="btn ghost" onClick={() => save("pdf")} disabled={!!busy}>
-              {busy === "pdf" && <span className="spinner" />}
-              Download .pdf
-            </button>
             <button
               className="btn ghost"
               onClick={() => navigator.clipboard?.writeText(app.resume_text)}
@@ -534,10 +530,6 @@ function CoverLetterPanel({ app, busy, setBusy, onWriteLetter, onSave }) {
         <button className="btn primary" onClick={() => onSave("docx")} disabled={!!busy}>
           {busy === "letter-docx" && <span className="spinner" />}
           Download .docx
-        </button>
-        <button className="btn ghost" onClick={() => onSave("pdf")} disabled={!!busy}>
-          {busy === "letter-pdf" && <span className="spinner" />}
-          Download .pdf
         </button>
         <button
           className="btn ghost"

@@ -5,9 +5,8 @@
 # scheduled ping means the first person to open the app in the day — usually
 # the person being shown it — does not sit through that.
 #
-# It deliberately does NOT build anyone's job feed. Doing that would need a
-# stored credential for each user, and the feed is cheap enough to fetch when
-# the page is opened. This keeps the service warm; nothing more.
+# It only calls the public health check. It touches no user data and needs no
+# credentials; it keeps the service warm and nothing more.
 name: Keep the API warm
 
 on:
